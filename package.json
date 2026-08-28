@@ -73,6 +73,26 @@
           },
           "description": "Reasoning/thinking effort level for models that support it (Claude Opus, GPT-5, Gemini 3, etc.)"
         },
+        "kilo-lm.customModels": {
+          "type": "array",
+          "default": [],
+          "description": "Add custom OpenAI-compatible models. Each model needs: id, name, baseUrl, contextLength, maxOutputTokens, supportsTools, supportsImages, supportsReasoning, apiKey",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "baseUrl", "contextLength"],
+            "properties": {
+              "id": { "type": "string", "description": "Model ID sent to the API" },
+              "name": { "type": "string", "description": "Display name in the model picker" },
+              "baseUrl": { "type": "string", "description": "API endpoint URL (e.g. http://localhost:11434/v1)" },
+              "apiKey": { "type": "string", "description": "API key for this endpoint" },
+              "contextLength": { "type": "number", "description": "Maximum context window in tokens" },
+              "maxOutputTokens": { "type": "number", "default": 32768 },
+              "supportsTools": { "type": "boolean", "default": true },
+              "supportsImages": { "type": "boolean", "default": false },
+              "supportsReasoning": { "type": "boolean", "default": false }
+            }
+          }
+        },
         "kilo-lm.visionModel": {
           "type": "string",
           "default": "",

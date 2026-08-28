@@ -34,10 +34,10 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode4 = __toESM(require("vscode"));
+var vscode5 = __toESM(require("vscode"));
 
 // src/auth.ts
-var vscode = __toESM(require("vscode"));
+var vscode2 = __toESM(require("vscode"));
 var API_KEY_STORAGE = "kilo-lm.apiKey";
 var GATEWAY_BASE = "https://api.kilo.ai/api/gateway";
 var KiloAuth = class {
@@ -50,7 +50,7 @@ var KiloAuth = class {
     this.apiKey = this.context.secrets.get(API_KEY_STORAGE) ?? null;
   }
   async login() {
-    const key = await vscode.window.showInputBox({
+    const key = await vscode2.window.showInputBox({
       prompt: "Enter your Kilo Gateway API Key",
       placeHolder: "JWT token from app.kilo.ai \u2192 Profile \u2192 API Key",
       password: true,
@@ -64,16 +64,16 @@ var KiloAuth = class {
     if (!key) return;
     this.apiKey = key;
     await this.context.secrets.store(API_KEY_STORAGE, key);
-    vscode.window.showInformationMessage("Kilo: API key saved successfully");
+    vscode2.window.showInformationMessage("Kilo: API key saved successfully");
   }
   async logout() {
     this.apiKey = null;
     await this.context.secrets.delete(API_KEY_STORAGE);
-    vscode.window.showInformationMessage("Kilo: API key removed");
+    vscode2.window.showInformationMessage("Kilo: API key removed");
   }
   async getAccessToken() {
     if (!this.apiKey) {
-      const action = await vscode.window.showWarningMessage(
+      const action = await vscode2.window.showWarningMessage(
         "Kilo API key not configured. Please enter your API key.",
         "Enter API Key",
         "Cancel"
@@ -128,14 +128,54 @@ function modelRequiresReasoning(id) {
 var KiloModelProvider = class {
   constructor(auth) {
     this.auth = auth;
+    this.loadCustomModels();
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("kilo-lm.customModels")) {
+        this.loadCustomModels();
+      }
+    });
   }
   models = [];
+  customModels = [];
   lastFetch = 0;
   cacheTtl = 36e5;
+  loadCustomModels() {
+    const config = vscode.workspace.getConfiguration("kilo-lm");
+    this.customModels = config.get("customModels", []);
+  }
+  getCustomModels() {
+    return this.customModels;
+  }
+  getCustomModelBaseUrl(modelId) {
+    const custom = this.customModels.find((m) => m.id === modelId);
+    return custom?.baseUrl ?? null;
+  }
+  isCustomModel(modelId) {
+    return this.customModels.some((m) => m.id === modelId);
+  }
+  getCustomModelApiKey(modelId) {
+    const custom = this.customModels.find((m) => m.id === modelId);
+    return custom?.apiKey ?? null;
+  }
   async refresh() {
     await this.fetchModels(true);
   }
   async getModels() {
+    const gatewayModels = await this.getGatewayModels();
+    const custom = this.customModels.map((m) => ({
+      id: m.id,
+      name: m.name,
+      contextLength: m.contextLength,
+      maxOutputTokens: m.maxOutputTokens,
+      supportsTools: m.supportsTools,
+      supportsImages: m.supportsImages,
+      supportsReasoning: m.supportsReasoning,
+      reasoningRequired: false,
+      pricing: m.pricing ?? { prompt: 0, completion: 0 }
+    }));
+    return [...gatewayModels, ...custom].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async getGatewayModels() {
     if (this.models.length > 0 && Date.now() - this.lastFetch < this.cacheTtl) {
       return this.models;
     }
@@ -191,10 +231,10 @@ var KiloModelProvider = class {
 };
 
 // src/chat-provider.ts
-var vscode3 = __toESM(require("vscode"));
+var vscode4 = __toESM(require("vscode"));
 
 // src/vision.ts
-var vscode2 = __toESM(require("vscode"));
+var vscode3 = __toESM(require("vscode"));
 var VisionProxy = class _VisionProxy {
   static instance = null;
   cache = /* @__PURE__ */ new Map();
@@ -213,18 +253,18 @@ var VisionProxy = class _VisionProxy {
     if (!visionModel) {
       throw new Error("No vision-capable model available. Install a model like Claude or GPT-4o for image support.");
     }
-    const prompt = vscode2.workspace.getConfiguration("kilo-lm").get(
+    const prompt = vscode3.workspace.getConfiguration("kilo-lm").get(
       "visionPrompt",
       "Describe the visual contents of this image in detail, including any text, objects, people, UI elements, or code that would be relevant for understanding it. Focus on factual visual elements."
     );
     const messages = [
-      vscode2.LanguageModelChatMessage.User(prompt),
-      vscode2.LanguageModelChatMessage.User([
-        new vscode2.LanguageModelTextPart("[Image: " + mimeType + "]")
+      vscode3.LanguageModelChatMessage.User(prompt),
+      vscode3.LanguageModelChatMessage.User([
+        new vscode3.LanguageModelTextPart("[Image: " + mimeType + "]")
       ])
     ];
     try {
-      const response = await visionModel.sendRequest(messages, {}, new vscode2.CancellationTokenSource().token);
+      const response = await visionModel.sendRequest(messages, {}, new vscode3.CancellationTokenSource().token);
       let description = "";
       for await (const chunk of response.text) {
         description += chunk;
@@ -241,8 +281,8 @@ var VisionProxy = class _VisionProxy {
     }
   }
   async selectVisionModel() {
-    const configured = vscode2.workspace.getConfiguration("kilo-lm").get("visionModel");
-    const models = await vscode2.lm.selectChatModels();
+    const configured = vscode3.workspace.getConfiguration("kilo-lm").get("visionModel");
+    const models = await vscode3.lm.selectChatModels();
     if (configured) {
       const match = models.find((m) => m.id === configured || m.name === configured);
       if (match) return match;
@@ -318,7 +358,7 @@ var KiloChatProvider = class {
     this.auth = auth;
     this.modelProvider = modelProvider;
     this.loadConfig();
-    vscode3.workspace.onDidChangeConfiguration((e) => {
+    vscode4.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kilo-lm.reasoning")) {
         this.loadConfig();
       }
@@ -328,7 +368,7 @@ var KiloChatProvider = class {
   visionProxy = VisionProxy.getInstance();
   usageTracker = UsageTracker.getInstance();
   loadConfig() {
-    const config = vscode3.workspace.getConfiguration("kilo-lm");
+    const config = vscode4.workspace.getConfiguration("kilo-lm");
     this.reasoningEffort = config.get("reasoningEffort", "medium");
   }
   async provideLanguageModelChatInformation(options, token) {
@@ -352,7 +392,20 @@ var KiloChatProvider = class {
     }
   }
   async provideLanguageModelChatResponse(model, messages, options, progress, token) {
-    const token_ = await this.auth.getAccessToken();
+    const isCustom = this.modelProvider.isCustomModel(model.id);
+    let token_ = null;
+    let baseUrl = GATEWAY_BASE3;
+    if (isCustom) {
+      const customKey = this.modelProvider.getCustomModelApiKey(model.id);
+      const customUrl = this.modelProvider.getCustomModelBaseUrl(model.id);
+      if (!customKey) {
+        throw new Error("Custom model requires an API key. Configure it in settings.");
+      }
+      token_ = customKey;
+      baseUrl = customUrl;
+    } else {
+      token_ = await this.auth.getAccessToken();
+    }
     if (!token_) {
       throw new Error("Not authenticated. Run 'Kilo: Login' first.");
     }
@@ -374,7 +427,7 @@ var KiloChatProvider = class {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       if (token.isCancellationRequested) return;
       try {
-        const response = await fetch(`${GATEWAY_BASE3}/chat/completions`, {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -394,7 +447,7 @@ var KiloChatProvider = class {
         const isContextOverflow = this.isContextOverflow(response.status, errorText);
         if (isContextOverflow && attempt < maxRetries - 1) {
           const delay2 = this.getRetryDelay(attempt, 429);
-          progress.report(new vscode3.LanguageModelTextPart(`
+          progress.report(new vscode4.LanguageModelTextPart(`
 [Context overflow, reducing and retrying...]
 `));
           await this.sleep(delay2);
@@ -407,7 +460,7 @@ var KiloChatProvider = class {
         }
         lastError = new Error(`Kilo Gateway error (${response.status}): ${errorText}`);
         const delay = this.getRetryDelay(attempt, response.status);
-        progress.report(new vscode3.LanguageModelTextPart(`
+        progress.report(new vscode4.LanguageModelTextPart(`
 [Model unavailable, retrying in ${delay / 1e3}s...]
 `));
         await this.sleep(delay);
@@ -443,7 +496,7 @@ var KiloChatProvider = class {
       } else if (Array.isArray(rawContent)) {
         const textParts = [];
         for (const part of rawContent) {
-          if (part instanceof vscode3.LanguageModelTextPart) {
+          if (part instanceof vscode4.LanguageModelTextPart) {
             textParts.push(part.value);
           } else if (typeof part === "string") {
             textParts.push(part);
@@ -463,9 +516,9 @@ var KiloChatProvider = class {
         }
         content = textParts.join("\n");
       }
-      if (role === vscode3.LanguageModelChatMessageRole.User) {
+      if (role === vscode4.LanguageModelChatMessageRole.User) {
         result.push({ role: "user", content });
-      } else if (role === vscode3.LanguageModelChatMessageRole.Assistant) {
+      } else if (role === vscode4.LanguageModelChatMessageRole.Assistant) {
         result.push({ role: "assistant", content });
       }
     }
@@ -521,9 +574,9 @@ var KiloChatProvider = class {
             if (delta?.reasoning) {
               thinkingContent += delta.reasoning;
               try {
-                thinkingPart = new vscode3.LanguageModelThinkingPart(delta.reasoning);
+                thinkingPart = new vscode4.LanguageModelThinkingPart(delta.reasoning);
               } catch {
-                progress.report(new vscode3.LanguageModelTextPart(`[thinking] ${delta.reasoning}`));
+                progress.report(new vscode4.LanguageModelTextPart(`[thinking] ${delta.reasoning}`));
               }
             }
             if (delta?.content) {
@@ -532,13 +585,13 @@ var KiloChatProvider = class {
                 thinkingContent = "";
                 thinkingPart = null;
               }
-              progress.report(new vscode3.LanguageModelTextPart(delta.content));
+              progress.report(new vscode4.LanguageModelTextPart(delta.content));
             }
             if (delta?.tool_calls) {
               for (const tc of delta.tool_calls) {
                 if (tc.function?.name) {
                   progress.report(
-                    new vscode3.LanguageModelToolCallPart(
+                    new vscode4.LanguageModelToolCallPart(
                       tc.function.name,
                       tc.id ?? "",
                       tc.function.arguments ? JSON.parse(tc.function.arguments) : {}
@@ -598,9 +651,9 @@ function activate(context) {
   const modelProvider = new KiloModelProvider(auth);
   const chatProvider = new KiloChatProvider(auth, modelProvider);
   const usageTracker = UsageTracker.getInstance();
-  const provider = vscode4.lm.registerLanguageModelChatProvider("kilo", chatProvider);
+  const provider = vscode5.lm.registerLanguageModelChatProvider("kilo", chatProvider);
   context.subscriptions.push(provider);
-  const statusBar = vscode4.window.createStatusBarItem(vscode4.StatusBarAlignment.Right, 100);
+  const statusBar = vscode5.window.createStatusBarItem(vscode5.StatusBarAlignment.Right, 100);
   statusBar.text = "$(brain) Kilo";
   statusBar.tooltip = "Kilo Gateway \u2014 Click for usage info";
   statusBar.command = "kilo-lm.showUsage";
@@ -620,25 +673,25 @@ Requests: ${summary.requestCount}`;
   };
   usageTracker.onUsageChanged("statusbar", updateStatusBar);
   context.subscriptions.push(
-    vscode4.commands.registerCommand("kilo-lm.login", async () => {
+    vscode5.commands.registerCommand("kilo-lm.login", async () => {
       await auth.login();
     })
   );
   context.subscriptions.push(
-    vscode4.commands.registerCommand("kilo-lm.logout", async () => {
+    vscode5.commands.registerCommand("kilo-lm.logout", async () => {
       await auth.logout();
     })
   );
   context.subscriptions.push(
-    vscode4.commands.registerCommand("kilo-lm.refreshModels", async () => {
+    vscode5.commands.registerCommand("kilo-lm.refreshModels", async () => {
       await modelProvider.refresh();
-      vscode4.window.showInformationMessage("Kilo: Models refreshed");
+      vscode5.window.showInformationMessage("Kilo: Models refreshed");
     })
   );
   context.subscriptions.push(
-    vscode4.commands.registerCommand("kilo-lm.setReasoningEffort", async () => {
-      const current = vscode4.workspace.getConfiguration("kilo-lm").get("reasoningEffort", "medium");
-      const result = await vscode4.window.showQuickPick(
+    vscode5.commands.registerCommand("kilo-lm.setReasoningEffort", async () => {
+      const current = vscode5.workspace.getConfiguration("kilo-lm").get("reasoningEffort", "medium");
+      const result = await vscode5.window.showQuickPick(
         [
           { label: "$(zap) Off", description: "No reasoning \u2014 fastest", value: "off" },
           { label: "$(dash) Low", description: "Minimal thinking", value: "low" },
@@ -648,15 +701,15 @@ Requests: ${summary.requestCount}`;
         { placeHolder: `Reasoning Effort: ${current}` }
       );
       if (result) {
-        await vscode4.workspace.getConfiguration("kilo-lm").update("reasoningEffort", result.value, vscode4.ConfigurationTarget.Global);
-        vscode4.window.showInformationMessage(`Kilo: Reasoning effort set to "${result.value}"`);
+        await vscode5.workspace.getConfiguration("kilo-lm").update("reasoningEffort", result.value, vscode5.ConfigurationTarget.Global);
+        vscode5.window.showInformationMessage(`Kilo: Reasoning effort set to "${result.value}"`);
       }
     })
   );
   context.subscriptions.push(
-    vscode4.commands.registerCommand("kilo-lm.showUsage", async () => {
+    vscode5.commands.registerCommand("kilo-lm.showUsage", async () => {
       const summary = usageTracker.getSessionSummary();
-      const action = await vscode4.window.showInformationMessage(
+      const action = await vscode5.window.showInformationMessage(
         `Kilo Gateway Usage
 Session cost: $${summary.sessionCost.toFixed(4)}
 Session tokens: ${summary.sessionTokens.toLocaleString()}
@@ -667,22 +720,22 @@ Total cost: $${summary.totalCost.toFixed(4)}`,
       );
       if (action === "Reset Session") {
         usageTracker.resetSession();
-        vscode4.window.showInformationMessage("Kilo: Session usage reset");
+        vscode5.window.showInformationMessage("Kilo: Session usage reset");
       } else if (action === "Refresh Models") {
         await modelProvider.refresh();
-        vscode4.window.showInformationMessage("Kilo: Models refreshed");
+        vscode5.window.showInformationMessage("Kilo: Models refreshed");
       }
     })
   );
   const hasShownWelcome = context.globalState.get("kilo-lm.welcomeShown");
   if (!hasShownWelcome) {
-    vscode4.window.showInformationMessage(
+    vscode5.window.showInformationMessage(
       "Kilo Gateway is ready! Get your API key from app.kilo.ai \u2192 Profile \u2192 API Key.",
       "Enter API Key",
       "Later"
     ).then((action) => {
       if (action === "Enter API Key") {
-        vscode4.commands.executeCommand("kilo-lm.login");
+        vscode5.commands.executeCommand("kilo-lm.login");
       }
     });
     context.globalState.update("kilo-lm.welcomeShown", true);

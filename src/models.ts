@@ -42,18 +42,78 @@ export function modelRequiresReasoning(id: string): boolean {
   return lower.includes("kimi-k2-thinking") || lower.includes("-thinking")
 }
 
+export interface CustomModel {
+  id: string
+  name: string
+  baseUrl: string
+  contextLength: number
+  maxOutputTokens: number
+  supportsTools: boolean
+  supportsImages: boolean
+  supportsReasoning: boolean
+  apiKey?: string
+  pricing?: { prompt: number; completion: number }
+}
+
 export class KiloModelProvider {
   private models: KiloModel[] = []
+  private customModels: CustomModel[] = []
   private lastFetch = 0
   private cacheTtl = 3600000
 
-  constructor(private auth: KiloAuth) {}
+  constructor(private auth: KiloAuth) {
+    this.loadCustomModels()
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("kilo-lm.customModels")) {
+        this.loadCustomModels()
+      }
+    })
+  }
+
+  private loadCustomModels(): void {
+    const config = vscode.workspace.getConfiguration("kilo-lm")
+    this.customModels = config.get<CustomModel[]>("customModels", [])
+  }
+
+  getCustomModels(): CustomModel[] {
+    return this.customModels
+  }
+
+  getCustomModelBaseUrl(modelId: string): string | null {
+    const custom = this.customModels.find((m) => m.id === modelId)
+    return custom?.baseUrl ?? null
+  }
+
+  isCustomModel(modelId: string): boolean {
+    return this.customModels.some((m) => m.id === modelId)
+  }
+
+  getCustomModelApiKey(modelId: string): string | null {
+    const custom = this.customModels.find((m) => m.id === modelId)
+    return custom?.apiKey ?? null
+  }
 
   async refresh(): Promise<void> {
     await this.fetchModels(true)
   }
 
   async getModels(): Promise<KiloModel[]> {
+    const gatewayModels = await this.getGatewayModels()
+    const custom: KiloModel[] = this.customModels.map((m) => ({
+      id: m.id,
+      name: m.name,
+      contextLength: m.contextLength,
+      maxOutputTokens: m.maxOutputTokens,
+      supportsTools: m.supportsTools,
+      supportsImages: m.supportsImages,
+      supportsReasoning: m.supportsReasoning,
+      reasoningRequired: false,
+      pricing: m.pricing ?? { prompt: 0, completion: 0 },
+    }))
+    return [...gatewayModels, ...custom].sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  private async getGatewayModels(): Promise<KiloModel[]> {
     if (this.models.length > 0 && Date.now() - this.lastFetch < this.cacheTtl) {
       return this.models
     }

@@ -86,7 +86,22 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
   ): Promise<void> {
-    const token_ = await this.auth.getAccessToken()
+    const isCustom = this.modelProvider.isCustomModel(model.id)
+    let token_: string | null = null
+    let baseUrl = GATEWAY_BASE
+
+    if (isCustom) {
+      const customKey = this.modelProvider.getCustomModelApiKey(model.id)
+      const customUrl = this.modelProvider.getCustomModelBaseUrl(model.id)
+      if (!customKey) {
+        throw new Error("Custom model requires an API key. Configure it in settings.")
+      }
+      token_ = customKey
+      baseUrl = customUrl
+    } else {
+      token_ = await this.auth.getAccessToken()
+    }
+
     if (!token_) {
       throw new Error("Not authenticated. Run 'Kilo: Login' first.")
     }
@@ -114,7 +129,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       if (token.isCancellationRequested) return
 
       try {
-        const response = await fetch(`${GATEWAY_BASE}/chat/completions`, {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
