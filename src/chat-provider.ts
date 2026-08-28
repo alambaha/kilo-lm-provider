@@ -71,6 +71,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   async provideLanguageModelChatInformation(options: { silent: boolean }, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
     try {
       const models = await this.modelProvider.getModels()
+      console.log("[Kilo LM] Providing model info for", models.length, "models")
       return models.map((m) => {
         const info: any = {
           id: m.id,
@@ -104,6 +105,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
           info.thinking = true
           info.supportsReasoningEffort = effortLevels
           info.reasoningEffortFormat = "chat-completions"
+          console.log("[Kilo LM] Model", m.id, "supportsReasoningEffort:", effortLevels)
         }
 
         return info
@@ -149,6 +151,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     const temperature = config.get<number>("temperature", 0.2)
     const maxTokensOverride = config.get<number>("maxTokens", 0)
     const modelConfig = (options as any).modelConfiguration ?? (options as any).modelOptions ?? {}
+    console.log("[Kilo LM] Request for", model.id, "modelConfig:", JSON.stringify(modelConfig))
 
     const request: GatewayRequest = {
       model: model.id,

@@ -463,6 +463,7 @@ var KiloChatProvider = class {
   async provideLanguageModelChatInformation(options, token) {
     try {
       const models = await this.modelProvider.getModels();
+      console.log("[Kilo LM] Providing model info for", models.length, "models");
       return models.map((m) => {
         const info = {
           id: m.id,
@@ -493,6 +494,7 @@ var KiloChatProvider = class {
           info.thinking = true;
           info.supportsReasoningEffort = effortLevels;
           info.reasoningEffortFormat = "chat-completions";
+          console.log("[Kilo LM] Model", m.id, "supportsReasoningEffort:", effortLevels);
         }
         return info;
       });
@@ -527,6 +529,7 @@ var KiloChatProvider = class {
     const temperature = config.get("temperature", 0.2);
     const maxTokensOverride = config.get("maxTokens", 0);
     const modelConfig = options.modelConfiguration ?? options.modelOptions ?? {};
+    console.log("[Kilo LM] Request for", model.id, "modelConfig:", JSON.stringify(modelConfig));
     const request = {
       model: model.id,
       messages: gatewayMessages,
