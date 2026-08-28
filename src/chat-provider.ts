@@ -71,18 +71,42 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   async provideLanguageModelChatInformation(options: { silent: boolean }, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
     try {
       const models = await this.modelProvider.getModels()
-      return models.map((m) => ({
-        id: m.id,
-        name: m.name,
-        family: m.id.split("/")[0] ?? "kilo",
-        version: "1.0.0",
-        maxInputTokens: m.contextLength - m.maxOutputTokens,
-        maxOutputTokens: m.maxOutputTokens,
-        capabilities: {
-          imageInput: m.supportsImages || this.visionProxy.hasVisionCapability(m.id),
-          toolCalling: m.supportsTools,
-        },
-      }))
+      return models.map((m) => {
+        const info: any = {
+          id: m.id,
+          name: m.name,
+          family: m.id.split("/")[0] ?? "kilo",
+          version: "1.0.0",
+          maxInputTokens: m.contextLength - m.maxOutputTokens,
+          maxOutputTokens: m.maxOutputTokens,
+          capabilities: {
+            imageInput: m.supportsImages || this.visionProxy.hasVisionCapability(m.id),
+            toolCalling: m.supportsTools,
+          },
+        }
+
+        if (m.supportsReasoning) {
+          const modelId = m.id.toLowerCase()
+          let effortLevels: string[] = ["off", "low", "medium", "high"]
+
+          if (modelId.includes("minimax")) {
+            effortLevels = ["off", "on"]
+          } else if (modelId.includes("deepseek")) {
+            effortLevels = ["off", "low", "medium", "high", "max"]
+          } else if (modelId.includes("qwen")) {
+            effortLevels = ["off", "auto", "on"]
+          } else if (modelId.includes("glm") || modelId.includes("kimi")) {
+            effortLevels = ["off", "on"]
+          } else if (modelId.includes("mimo")) {
+            effortLevels = ["off", "low", "medium", "high"]
+          }
+
+          info.supportsReasoningEffort = effortLevels
+          info.reasoningEffortFormat = "chat-completions"
+        }
+
+        return info
+      })
     } catch (err) {
       console.error("[Kilo LM] Failed to provide model info:", err)
       return []
@@ -123,6 +147,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     const config = vscode.workspace.getConfiguration("kilo-lm")
     const temperature = config.get<number>("temperature", 0.2)
     const maxTokensOverride = config.get<number>("maxTokens", 0)
+    const modelConfig = (options as any).modelConfiguration ?? {}
 
     const request: GatewayRequest = {
       model: model.id,
@@ -133,7 +158,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       tools,
     }
 
-    this.applyReasoning(request, fullModel)
+    this.applyReasoning(request, fullModel, modelConfig)
 
     const maxRetries = 3
     let lastError: Error | null = null
@@ -409,19 +434,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     }
   }
 
-  private getFamilyEffort(modelId: string): string {
-    const config = vscode.workspace.getConfiguration("kilo-lm")
-    const lower = modelId.toLowerCase()
-    if (lower.includes("deepseek")) return config.get<string>("thinking.deepseek", "off")
-    if (lower.includes("glm")) return config.get<string>("thinking.glm", "off")
-    if (lower.includes("kimi")) return config.get<string>("thinking.kimi", "off")
-    if (lower.includes("minimax")) return config.get<string>("thinking.minimax", "off")
-    if (lower.includes("mimo")) return config.get<string>("thinking.mimo", "off")
-    if (lower.includes("qwen")) return config.get<string>("thinking.qwen", "off")
-    return "off"
-  }
-
-  private applyReasoning(request: GatewayRequest, model: KiloModel | undefined): void {
+  private applyReasoning(request: GatewayRequest, model: KiloModel | undefined, modelConfig: Record<string, unknown>): void {
     if (!model) return
 
     if (model.reasoningRequired) {
@@ -431,24 +444,23 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
 
     if (!model.supportsReasoning) return
 
-    const effort = this.getFamilyEffort(model.id)
+    const effort = (modelConfig.reasoningEffort as string) ?? "off"
+    if (effort === "off") return
+
     const modelId = model.id.toLowerCase()
 
     if (modelId.includes("minimax")) {
-      request.thinking = { type: effort === "off" ? "disabled" : "adaptive" }
+      request.thinking = { type: effort === "on" ? "adaptive" : "disabled" }
     } else if (modelId.includes("deepseek")) {
       const map: Record<string, string> = { off: "off", low: "low", medium: "medium", high: "high", max: "max" }
       request.reasoning_effort = map[effort] ?? "high"
     } else if (modelId.includes("qwen")) {
-      if (effort === "off") return
       request.enable_thinking = true
-      const config = vscode.workspace.getConfiguration("kilo-lm")
-      const budget = config.get<string>("thinking.qwenBudget", "auto")
-      if (budget !== "auto") {
-        request.thinking_budget = parseInt(budget, 10)
+      if (effort === "on") {
+        request.thinking_budget = 16384
       }
     } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-      request.enable_thinking = effort !== "off"
+      request.enable_thinking = effort === "on"
     } else if (modelId.includes("claude")) {
       const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768 }
       request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 }
