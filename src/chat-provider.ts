@@ -94,23 +94,20 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
 
         if (m.supportsReasoning) {
           const modelId = m.id.toLowerCase()
-          let effortLevels: string[] = ["off", "low", "medium", "high"]
+          let effortLevels: string[] = ["none", "low", "medium", "high"]
 
           if (modelId.includes("minimax")) {
-            effortLevels = ["off", "on"]
+            effortLevels = ["none", "on"]
           } else if (modelId.includes("deepseek")) {
-            effortLevels = ["off", "low", "medium", "high", "max"]
+            effortLevels = ["none", "low", "medium", "high", "max"]
           } else if (modelId.includes("qwen")) {
-            effortLevels = ["off", "auto", "on"]
+            effortLevels = ["none", "auto", "on"]
           } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-            effortLevels = ["off", "on"]
+            effortLevels = ["none", "on"]
           } else if (modelId.includes("mimo")) {
-            effortLevels = ["off", "low", "medium", "high"]
+            effortLevels = ["none", "low", "medium", "high"]
           }
 
-          info.thinking = true
-          info.supportsReasoningEffort = effortLevels
-          info.reasoningEffortFormat = "chat-completions"
           info.configurationSchema = {
             properties: {
               reasoningEffort: {
@@ -123,7 +120,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
               },
             },
           }
-          console.log("[Kilo LM] Model", m.id, "supportsReasoningEffort:", effortLevels)
+          console.log("[Kilo LM] Model", m.id, "configurationSchema:", JSON.stringify(info.configurationSchema))
         }
 
         return info
@@ -168,8 +165,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     const config = vscode.workspace.getConfiguration("kilo-lm")
     const temperature = config.get<number>("temperature", 0.2)
     const maxTokensOverride = config.get<number>("maxTokens", 0)
-    const modelConfig = (options as any).modelConfiguration ?? (options as any).modelOptions ?? {}
-    console.log("[Kilo LM] Request for", model.id, "modelConfig:", JSON.stringify(modelConfig))
+    const modelConfig = (options as any).modelConfiguration ?? {}
 
     const request: GatewayRequest = {
       model: model.id,
@@ -466,15 +462,15 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
 
     if (!model.supportsReasoning) return
 
-    const effort = (modelConfig.reasoningEffort as string) ?? "off"
-    if (effort === "off") return
+    const effort = (modelConfig.reasoningEffort as string) ?? "none"
+    if (effort === "none" || effort === "off") return
 
     const modelId = model.id.toLowerCase()
 
     if (modelId.includes("minimax")) {
       request.thinking = { type: effort === "on" ? "adaptive" : "disabled" }
     } else if (modelId.includes("deepseek")) {
-      const map: Record<string, string> = { off: "off", low: "low", medium: "medium", high: "high", max: "max" }
+      const map: Record<string, string> = { none: "none", low: "low", medium: "medium", high: "high", max: "max" }
       request.reasoning_effort = map[effort] ?? "high"
     } else if (modelId.includes("qwen")) {
       request.enable_thinking = true
@@ -487,7 +483,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768 }
       request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 }
     } else {
-      const map: Record<string, string> = { off: "off", low: "low", medium: "medium", high: "high" }
+      const map: Record<string, string> = { none: "none", low: "low", medium: "medium", high: "high" }
       request.reasoning_effort = map[effort] ?? "medium"
     }
   }

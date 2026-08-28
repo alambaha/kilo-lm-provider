@@ -484,21 +484,18 @@ var KiloChatProvider = class {
         };
         if (m.supportsReasoning) {
           const modelId = m.id.toLowerCase();
-          let effortLevels = ["off", "low", "medium", "high"];
+          let effortLevels = ["none", "low", "medium", "high"];
           if (modelId.includes("minimax")) {
-            effortLevels = ["off", "on"];
+            effortLevels = ["none", "on"];
           } else if (modelId.includes("deepseek")) {
-            effortLevels = ["off", "low", "medium", "high", "max"];
+            effortLevels = ["none", "low", "medium", "high", "max"];
           } else if (modelId.includes("qwen")) {
-            effortLevels = ["off", "auto", "on"];
+            effortLevels = ["none", "auto", "on"];
           } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-            effortLevels = ["off", "on"];
+            effortLevels = ["none", "on"];
           } else if (modelId.includes("mimo")) {
-            effortLevels = ["off", "low", "medium", "high"];
+            effortLevels = ["none", "low", "medium", "high"];
           }
-          info.thinking = true;
-          info.supportsReasoningEffort = effortLevels;
-          info.reasoningEffortFormat = "chat-completions";
           info.configurationSchema = {
             properties: {
               reasoningEffort: {
@@ -511,7 +508,7 @@ var KiloChatProvider = class {
               }
             }
           };
-          console.log("[Kilo LM] Model", m.id, "supportsReasoningEffort:", effortLevels);
+          console.log("[Kilo LM] Model", m.id, "configurationSchema:", JSON.stringify(info.configurationSchema));
         }
         return info;
       });
@@ -545,8 +542,7 @@ var KiloChatProvider = class {
     const config = vscode4.workspace.getConfiguration("kilo-lm");
     const temperature = config.get("temperature", 0.2);
     const maxTokensOverride = config.get("maxTokens", 0);
-    const modelConfig = options.modelConfiguration ?? options.modelOptions ?? {};
-    console.log("[Kilo LM] Request for", model.id, "modelConfig:", JSON.stringify(modelConfig));
+    const modelConfig = options.modelConfiguration ?? {};
     const request = {
       model: model.id,
       messages: gatewayMessages,
@@ -790,13 +786,13 @@ var KiloChatProvider = class {
       return;
     }
     if (!model.supportsReasoning) return;
-    const effort = modelConfig.reasoningEffort ?? "off";
-    if (effort === "off") return;
+    const effort = modelConfig.reasoningEffort ?? "none";
+    if (effort === "none" || effort === "off") return;
     const modelId = model.id.toLowerCase();
     if (modelId.includes("minimax")) {
       request.thinking = { type: effort === "on" ? "adaptive" : "disabled" };
     } else if (modelId.includes("deepseek")) {
-      const map = { off: "off", low: "low", medium: "medium", high: "high", max: "max" };
+      const map = { none: "none", low: "low", medium: "medium", high: "high", max: "max" };
       request.reasoning_effort = map[effort] ?? "high";
     } else if (modelId.includes("qwen")) {
       request.enable_thinking = true;
@@ -809,7 +805,7 @@ var KiloChatProvider = class {
       const budgets = { low: 4096, medium: 16384, high: 32768 };
       request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 };
     } else {
-      const map = { off: "off", low: "low", medium: "medium", high: "high" };
+      const map = { none: "none", low: "low", medium: "medium", high: "high" };
       request.reasoning_effort = map[effort] ?? "medium";
     }
   }

@@ -9,8 +9,11 @@
     "github.copilot-chat"
   ],
   "engines": {
-    "vscode": "^1.104.0"
+    "vscode": "^1.125.0"
   },
+  "enabledApiProposals": [
+    "chatProvider"
+  ],
   "categories": ["AI", "Chat", "Machine Learning"],
   "keywords": ["kilo", "copilot", "chat", "llm", "claude", "gpt", "gemini", "ai"],
   "activationEvents": [
