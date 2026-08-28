@@ -92,22 +92,8 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
           },
         }
 
-        if (m.supportsReasoning) {
-          const modelId = m.id.toLowerCase()
-          let effortLevels: string[] = ["none", "low", "medium", "high"]
-
-          if (modelId.includes("minimax")) {
-            effortLevels = ["none", "on"]
-          } else if (modelId.includes("deepseek")) {
-            effortLevels = ["none", "low", "medium", "high", "max"]
-          } else if (modelId.includes("qwen")) {
-            effortLevels = ["none", "auto", "on"]
-          } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-            effortLevels = ["none", "on"]
-          } else if (modelId.includes("mimo")) {
-            effortLevels = ["none", "low", "medium", "high"]
-          }
-
+        if (m.supportsReasoning && m.reasoningVariants.length > 0) {
+          const effortLevels = m.reasoningVariants.map((v) => v.effort)
           info.configurationSchema = {
             properties: {
               reasoningEffort: {
@@ -120,7 +106,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
               },
             },
           }
-          console.log("[Kilo LM] Model", m.id, "configurationSchema:", JSON.stringify(info.configurationSchema))
+          console.log("[Kilo LM] Model", m.id, "variants:", effortLevels)
         }
 
         return info
@@ -455,36 +441,41 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   private applyReasoning(request: GatewayRequest, model: KiloModel | undefined, modelConfig: Record<string, unknown>): void {
     if (!model) return
 
-    if (model.reasoningRequired) {
-      request.reasoning_effort = "high"
+    if (model.reasoningRequired && model.reasoningVariants.length > 0) {
+      const variant = model.reasoningVariants[0]
+      this.sendReasoningParam(request, variant)
       return
     }
 
-    if (!model.supportsReasoning) return
+    if (!model.supportsReasoning || model.reasoningVariants.length === 0) return
 
-    const effort = (modelConfig.reasoningEffort as string) ?? "none"
-    if (effort === "none" || effort === "off") return
+    const effort = (modelConfig.reasoningEffort as string) ?? model.reasoningVariants[0].effort
+    const variant = model.reasoningVariants.find((v) => v.effort === effort) ?? model.reasoningVariants[0]
+    if (!variant.enabled && variant.effort === "none") return
 
-    const modelId = model.id.toLowerCase()
+    this.sendReasoningParam(request, variant)
+  }
+
+  private sendReasoningParam(request: GatewayRequest, variant: { key: string; effort: string; enabled: boolean }): void {
+    const modelId = request.model.toLowerCase()
 
     if (modelId.includes("minimax")) {
-      request.thinking = { type: effort === "on" ? "adaptive" : "disabled" }
+      request.thinking = { type: variant.enabled ? "adaptive" : "disabled" }
     } else if (modelId.includes("deepseek")) {
-      const map: Record<string, string> = { none: "none", low: "low", medium: "medium", high: "high", max: "max" }
-      request.reasoning_effort = map[effort] ?? "high"
+      request.reasoning_effort = variant.effort
     } else if (modelId.includes("qwen")) {
-      request.enable_thinking = true
-      if (effort === "on") {
-        request.thinking_budget = 16384
+      request.enable_thinking = variant.enabled
+      if (variant.enabled && variant.effort !== "none") {
+        const budgets: Record<string, number> = { minimal: 4096, low: 8192, medium: 16384, high: 32768, xhigh: 65536 }
+        request.thinking_budget = budgets[variant.effort] ?? 16384
       }
     } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-      request.enable_thinking = effort === "on"
+      request.enable_thinking = variant.enabled
     } else if (modelId.includes("claude")) {
-      const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768 }
-      request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 }
+      const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768, xhigh: 65536 }
+      request.thinking = { type: "enabled", budget_tokens: budgets[variant.effort] ?? 16384 }
     } else {
-      const map: Record<string, string> = { none: "none", low: "low", medium: "medium", high: "high" }
-      request.reasoning_effort = map[effort] ?? "medium"
+      request.reasoning_effort = variant.effort
     }
   }
 

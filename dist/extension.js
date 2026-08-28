@@ -102,42 +102,6 @@ var KiloAuth = class {
 // src/models.ts
 var vscode2 = __toESM(require("vscode"));
 var GATEWAY_BASE2 = "https://api.kilo.ai/api/gateway";
-var REASONING_MODELS = [
-  "opus-4",
-  "o1",
-  "o3",
-  "o4",
-  "gpt-5",
-  "grok-4",
-  "kimi-k2",
-  "kimi-k3",
-  "deepseek-r1",
-  "deepseek-v3",
-  "deepseek-v4",
-  "qwen3",
-  "qwen3.5",
-  "qwen3.6",
-  "qwen3.7",
-  "qwen3.8",
-  "gemini-2.5-pro",
-  "gemini-3",
-  "gemini-3.1",
-  "minimax-m",
-  "mimo",
-  "glm-5",
-  "glm-5.1",
-  "glm-5.2",
-  "claude-opus",
-  "claude-sonnet"
-];
-function modelSupportsReasoning(id) {
-  const lower = id.toLowerCase();
-  return REASONING_MODELS.some((pattern) => lower.includes(pattern));
-}
-function modelRequiresReasoning(id) {
-  const lower = id.toLowerCase();
-  return lower.includes("kimi-k2-thinking") || lower.includes("-thinking");
-}
 var KiloModelProvider = class {
   constructor(auth) {
     this.auth = auth;
@@ -184,6 +148,7 @@ var KiloModelProvider = class {
       supportsImages: m.supportsImages,
       supportsReasoning: m.supportsReasoning,
       reasoningRequired: false,
+      reasoningVariants: [],
       pricing: m.pricing ?? { prompt: 0, completion: 0 }
     }));
     return [...gatewayModels, ...custom].sort((a, b) => a.name.localeCompare(b.name));
@@ -194,6 +159,22 @@ var KiloModelProvider = class {
     }
     await this.fetchModels();
     return this.models;
+  }
+  extractReasoningVariants(m) {
+    const variants = [];
+    const opencodeVariants = m.opencode?.variants;
+    if (!opencodeVariants) return variants;
+    for (const [key, value] of Object.entries(opencodeVariants)) {
+      const reasoning = value.reasoning;
+      if (reasoning) {
+        variants.push({
+          key,
+          effort: reasoning.effort ?? "none",
+          enabled: reasoning.enabled ?? false
+        });
+      }
+    }
+    return variants;
   }
   async fetchModels(force = false) {
     if (!force && this.models.length > 0 && Date.now() - this.lastFetch < this.cacheTtl) {
@@ -210,20 +191,24 @@ var KiloModelProvider = class {
         throw new Error(`Failed to fetch models: ${response.status}`);
       }
       const data = await response.json();
-      this.models = data.data.filter((m) => !m.architecture?.output_modalities?.includes("image")).filter((m) => !m.supported_parameters || m.supported_parameters.includes("tools")).map((m) => ({
-        id: m.id,
-        name: m.name,
-        contextLength: m.context_length,
-        maxOutputTokens: m.max_completion_tokens ?? Math.min(m.context_length, 32768),
-        supportsTools: !m.supported_parameters || m.supported_parameters.includes("tools"),
-        supportsImages: m.supported_parameters?.includes("image") ?? false,
-        supportsReasoning: modelSupportsReasoning(m.id),
-        reasoningRequired: modelRequiresReasoning(m.id),
-        pricing: {
-          prompt: parseFloat(m.pricing?.prompt ?? "0"),
-          completion: parseFloat(m.pricing?.completion ?? "0")
-        }
-      })).sort((a, b) => a.name.localeCompare(b.name));
+      this.models = data.data.filter((m) => !m.architecture?.output_modalities?.includes("image")).filter((m) => !m.supported_parameters || m.supported_parameters.includes("tools")).map((m) => {
+        const variants = this.extractReasoningVariants(m);
+        return {
+          id: m.id,
+          name: m.name,
+          contextLength: m.context_length,
+          maxOutputTokens: m.max_completion_tokens ?? Math.min(m.context_length, 32768),
+          supportsTools: !m.supported_parameters || m.supported_parameters.includes("tools"),
+          supportsImages: m.supported_parameters?.includes("image") ?? false,
+          supportsReasoning: variants.length > 0,
+          reasoningRequired: variants.length === 1 && variants[0].enabled,
+          reasoningVariants: variants,
+          pricing: {
+            prompt: parseFloat(m.pricing?.prompt ?? "0"),
+            completion: parseFloat(m.pricing?.completion ?? "0")
+          }
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
       this.lastFetch = Date.now();
     } catch (err) {
       console.error("[Kilo LM] Failed to fetch models:", err);
@@ -234,10 +219,8 @@ var KiloModelProvider = class {
   }
   getFallbackModels() {
     this.models = [
-      { id: "anthropic/claude-opus-4.7", name: "Claude Opus 4.7", contextLength: 2e5, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 15e-6, completion: 75e-6 } },
-      { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", contextLength: 2e5, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 3e-6, completion: 15e-6 } },
-      { id: "openai/gpt-5.4", name: "GPT-5.4", contextLength: 128e3, maxOutputTokens: 16384, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 5e-6, completion: 2e-5 } },
-      { id: "google/gemini-3.1-pro", name: "Gemini 3.1 Pro", contextLength: 1e6, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 2e-6, completion: 1e-5 } }
+      { id: "anthropic/claude-opus-4.7", name: "Claude Opus 4.7", contextLength: 2e5, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, reasoningVariants: [{ key: "high", effort: "high", enabled: true }], pricing: { prompt: 15e-6, completion: 75e-6 } },
+      { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", contextLength: 2e5, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, reasoningVariants: [{ key: "high", effort: "high", enabled: true }], pricing: { prompt: 3e-6, completion: 15e-6 } }
     ];
     this.lastFetch = Date.now();
   }
@@ -482,20 +465,8 @@ var KiloChatProvider = class {
             toolCalling: m.supportsTools
           }
         };
-        if (m.supportsReasoning) {
-          const modelId = m.id.toLowerCase();
-          let effortLevels = ["none", "low", "medium", "high"];
-          if (modelId.includes("minimax")) {
-            effortLevels = ["none", "on"];
-          } else if (modelId.includes("deepseek")) {
-            effortLevels = ["none", "low", "medium", "high", "max"];
-          } else if (modelId.includes("qwen")) {
-            effortLevels = ["none", "auto", "on"];
-          } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-            effortLevels = ["none", "on"];
-          } else if (modelId.includes("mimo")) {
-            effortLevels = ["none", "low", "medium", "high"];
-          }
+        if (m.supportsReasoning && m.reasoningVariants.length > 0) {
+          const effortLevels = m.reasoningVariants.map((v) => v.effort);
           info.configurationSchema = {
             properties: {
               reasoningEffort: {
@@ -508,7 +479,7 @@ var KiloChatProvider = class {
               }
             }
           };
-          console.log("[Kilo LM] Model", m.id, "configurationSchema:", JSON.stringify(info.configurationSchema));
+          console.log("[Kilo LM] Model", m.id, "variants:", effortLevels);
         }
         return info;
       });
@@ -781,32 +752,36 @@ var KiloChatProvider = class {
   }
   applyReasoning(request, model, modelConfig) {
     if (!model) return;
-    if (model.reasoningRequired) {
-      request.reasoning_effort = "high";
+    if (model.reasoningRequired && model.reasoningVariants.length > 0) {
+      const variant2 = model.reasoningVariants[0];
+      this.sendReasoningParam(request, variant2);
       return;
     }
-    if (!model.supportsReasoning) return;
-    const effort = modelConfig.reasoningEffort ?? "none";
-    if (effort === "none" || effort === "off") return;
-    const modelId = model.id.toLowerCase();
+    if (!model.supportsReasoning || model.reasoningVariants.length === 0) return;
+    const effort = modelConfig.reasoningEffort ?? model.reasoningVariants[0].effort;
+    const variant = model.reasoningVariants.find((v) => v.effort === effort) ?? model.reasoningVariants[0];
+    if (!variant.enabled && variant.effort === "none") return;
+    this.sendReasoningParam(request, variant);
+  }
+  sendReasoningParam(request, variant) {
+    const modelId = request.model.toLowerCase();
     if (modelId.includes("minimax")) {
-      request.thinking = { type: effort === "on" ? "adaptive" : "disabled" };
+      request.thinking = { type: variant.enabled ? "adaptive" : "disabled" };
     } else if (modelId.includes("deepseek")) {
-      const map = { none: "none", low: "low", medium: "medium", high: "high", max: "max" };
-      request.reasoning_effort = map[effort] ?? "high";
+      request.reasoning_effort = variant.effort;
     } else if (modelId.includes("qwen")) {
-      request.enable_thinking = true;
-      if (effort === "on") {
-        request.thinking_budget = 16384;
+      request.enable_thinking = variant.enabled;
+      if (variant.enabled && variant.effort !== "none") {
+        const budgets = { minimal: 4096, low: 8192, medium: 16384, high: 32768, xhigh: 65536 };
+        request.thinking_budget = budgets[variant.effort] ?? 16384;
       }
     } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-      request.enable_thinking = effort === "on";
+      request.enable_thinking = variant.enabled;
     } else if (modelId.includes("claude")) {
-      const budgets = { low: 4096, medium: 16384, high: 32768 };
-      request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 };
+      const budgets = { low: 4096, medium: 16384, high: 32768, xhigh: 65536 };
+      request.thinking = { type: "enabled", budget_tokens: budgets[variant.effort] ?? 16384 };
     } else {
-      const map = { none: "none", low: "low", medium: "medium", high: "high" };
-      request.reasoning_effort = map[effort] ?? "medium";
+      request.reasoning_effort = variant.effort;
     }
   }
   convertTools(tools) {

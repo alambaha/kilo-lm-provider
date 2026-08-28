@@ -3,7 +3,11 @@ import { KiloAuth } from "./auth"
 
 const GATEWAY_BASE = "https://api.kilo.ai/api/gateway"
 
-export type ReasoningEffort = "off" | "low" | "medium" | "high"
+export interface ReasoningVariant {
+  key: string
+  effort: string
+  enabled: boolean
+}
 
 export interface KiloModel {
   id: string
@@ -14,6 +18,7 @@ export interface KiloModel {
   supportsImages: boolean
   supportsReasoning: boolean
   reasoningRequired: boolean
+  reasoningVariants: ReasoningVariant[]
   pricing: { prompt: number; completion: number }
 }
 
@@ -25,25 +30,9 @@ interface OpenRouterModel {
   supported_parameters?: string[]
   architecture?: { output_modalities?: string[] }
   pricing?: { prompt: string; completion: string }
-}
-
-const REASONING_MODELS = [
-  "opus-4", "o1", "o3", "o4", "gpt-5", "grok-4",
-  "kimi-k2", "kimi-k3", "deepseek-r1", "deepseek-v3", "deepseek-v4",
-  "qwen3", "qwen3.5", "qwen3.6", "qwen3.7", "qwen3.8",
-  "gemini-2.5-pro", "gemini-3", "gemini-3.1",
-  "minimax-m", "mimo", "glm-5", "glm-5.1", "glm-5.2",
-  "claude-opus", "claude-sonnet",
-]
-
-export function modelSupportsReasoning(id: string): boolean {
-  const lower = id.toLowerCase()
-  return REASONING_MODELS.some((pattern) => lower.includes(pattern))
-}
-
-export function modelRequiresReasoning(id: string): boolean {
-  const lower = id.toLowerCase()
-  return lower.includes("kimi-k2-thinking") || lower.includes("-thinking")
+  opencode?: {
+    variants?: Record<string, { reasoning?: { enabled?: boolean; effort?: string } }>
+  }
 }
 
 export interface CustomModel {
@@ -112,6 +101,7 @@ export class KiloModelProvider {
       supportsImages: m.supportsImages,
       supportsReasoning: m.supportsReasoning,
       reasoningRequired: false,
+      reasoningVariants: [],
       pricing: m.pricing ?? { prompt: 0, completion: 0 },
     }))
     return [...gatewayModels, ...custom].sort((a, b) => a.name.localeCompare(b.name))
@@ -123,6 +113,24 @@ export class KiloModelProvider {
     }
     await this.fetchModels()
     return this.models
+  }
+
+  private extractReasoningVariants(m: OpenRouterModel): ReasoningVariant[] {
+    const variants: ReasoningVariant[] = []
+    const opencodeVariants = m.opencode?.variants
+    if (!opencodeVariants) return variants
+
+    for (const [key, value] of Object.entries(opencodeVariants)) {
+      const reasoning = value.reasoning
+      if (reasoning) {
+        variants.push({
+          key,
+          effort: reasoning.effort ?? "none",
+          enabled: reasoning.enabled ?? false,
+        })
+      }
+    }
+    return variants
   }
 
   private async fetchModels(force = false): Promise<void> {
@@ -146,20 +154,24 @@ export class KiloModelProvider {
       this.models = data.data
         .filter((m) => !m.architecture?.output_modalities?.includes("image"))
         .filter((m) => !m.supported_parameters || m.supported_parameters.includes("tools"))
-        .map((m) => ({
-          id: m.id,
-          name: m.name,
-          contextLength: m.context_length,
-          maxOutputTokens: m.max_completion_tokens ?? Math.min(m.context_length, 32768),
-          supportsTools: !m.supported_parameters || m.supported_parameters.includes("tools"),
-          supportsImages: m.supported_parameters?.includes("image") ?? false,
-          supportsReasoning: modelSupportsReasoning(m.id),
-          reasoningRequired: modelRequiresReasoning(m.id),
-          pricing: {
-            prompt: parseFloat(m.pricing?.prompt ?? "0"),
-            completion: parseFloat(m.pricing?.completion ?? "0"),
-          },
-        }))
+        .map((m) => {
+          const variants = this.extractReasoningVariants(m)
+          return {
+            id: m.id,
+            name: m.name,
+            contextLength: m.context_length,
+            maxOutputTokens: m.max_completion_tokens ?? Math.min(m.context_length, 32768),
+            supportsTools: !m.supported_parameters || m.supported_parameters.includes("tools"),
+            supportsImages: m.supported_parameters?.includes("image") ?? false,
+            supportsReasoning: variants.length > 0,
+            reasoningRequired: variants.length === 1 && variants[0].enabled,
+            reasoningVariants: variants,
+            pricing: {
+              prompt: parseFloat(m.pricing?.prompt ?? "0"),
+              completion: parseFloat(m.pricing?.completion ?? "0"),
+            },
+          }
+        })
         .sort((a, b) => a.name.localeCompare(b.name))
 
       this.lastFetch = Date.now()
@@ -173,10 +185,8 @@ export class KiloModelProvider {
 
   private getFallbackModels(): void {
     this.models = [
-      { id: "anthropic/claude-opus-4.7", name: "Claude Opus 4.7", contextLength: 200000, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 0.000015, completion: 0.000075 } },
-      { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", contextLength: 200000, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 0.000003, completion: 0.000015 } },
-      { id: "openai/gpt-5.4", name: "GPT-5.4", contextLength: 128000, maxOutputTokens: 16384, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 0.000005, completion: 0.00002 } },
-      { id: "google/gemini-3.1-pro", name: "Gemini 3.1 Pro", contextLength: 1000000, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, pricing: { prompt: 0.000002, completion: 0.00001 } },
+      { id: "anthropic/claude-opus-4.7", name: "Claude Opus 4.7", contextLength: 200000, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, reasoningVariants: [{ key: "high", effort: "high", enabled: true }], pricing: { prompt: 0.000015, completion: 0.000075 } },
+      { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", contextLength: 200000, maxOutputTokens: 32768, supportsTools: true, supportsImages: true, supportsReasoning: true, reasoningRequired: false, reasoningVariants: [{ key: "high", effort: "high", enabled: true }], pricing: { prompt: 0.000003, completion: 0.000015 } },
     ]
     this.lastFetch = Date.now()
   }
