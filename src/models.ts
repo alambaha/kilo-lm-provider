@@ -29,8 +29,11 @@ interface OpenRouterModel {
 
 const REASONING_MODELS = [
   "opus-4", "o1", "o3", "o4", "gpt-5", "grok-4",
-  "kimi-k2", "deepseek-r1", "qwen3", "gemini-2.5-pro",
-  "gemini-3", "minimax-m", "claude-opus", "claude-sonnet",
+  "kimi-k2", "kimi-k3", "deepseek-r1", "deepseek-v3", "deepseek-v4",
+  "qwen3", "qwen3.5", "qwen3.6", "qwen3.7", "qwen3.8",
+  "gemini-2.5-pro", "gemini-3", "gemini-3.1",
+  "minimax-m", "mimo", "glm-5", "glm-5.1", "glm-5.2",
+  "claude-opus", "claude-sonnet",
 ]
 
 export function modelSupportsReasoning(id: string): boolean {

@@ -11,12 +11,6 @@ interface GatewayMessage {
   content: string
 }
 
-interface GatewayReasoning {
-  enabled: boolean
-  effort?: "low" | "medium" | "high"
-  budget_tokens?: number
-}
-
 interface GatewayRequest {
   model: string
   messages: GatewayMessage[]
@@ -24,7 +18,10 @@ interface GatewayRequest {
   temperature?: number
   max_tokens?: number
   tools?: GatewayTool[]
-  reasoning?: GatewayReasoning
+  reasoning_effort?: string
+  thinking?: Record<string, unknown>
+  enable_thinking?: boolean
+  thinking_budget?: number
 }
 
 interface GatewayTool {
@@ -130,7 +127,6 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     const gatewayMessages = await this.convertMessages(messages, model.id, progress, token)
     const tools = options.tools ? this.convertTools(options.tools) : undefined
     const fullModel = (await this.modelProvider.getModels()).find((m) => m.id === model.id)
-    const reasoning = this.buildReasoning(fullModel)
     const config = vscode.workspace.getConfiguration("kilo-lm")
     const temperature = config.get<number>("temperature", 0.2)
     const maxTokensOverride = config.get<number>("maxTokens", 0)
@@ -144,9 +140,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       tools,
     }
 
-    if (reasoning) {
-      request.reasoning = reasoning
-    }
+    this.applyReasoning(request, fullModel)
 
     const maxRetries = 3
     let lastError: Error | null = null
@@ -422,24 +416,39 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     }
   }
 
-  private buildReasoning(model: KiloModel | undefined): GatewayReasoning | null {
-    if (!model) return null
+  private applyReasoning(request: GatewayRequest, model: KiloModel | undefined): void {
+    if (!model) return
 
     if (model.reasoningRequired) {
-      return { enabled: true, effort: "high" }
+      request.reasoning_effort = "high"
+      return
     }
 
-    if (!model.supportsReasoning) return null
+    if (!model.supportsReasoning) return
 
-    switch (this.reasoningEffort) {
-      case "off":
-        return null
-      case "low":
-        return { enabled: true, effort: "low" }
-      case "medium":
-        return { enabled: true, effort: "medium" }
-      case "high":
-        return { enabled: true, effort: "high", budget_tokens: 32000 }
+    const effort = this.reasoningEffort
+    if (effort === "off") return
+
+    const modelId = model.id.toLowerCase()
+
+    if (modelId.includes("minimax")) {
+      const type = effort === "low" ? "disabled" : "adaptive"
+      request.thinking = { type }
+    } else if (modelId.includes("deepseek")) {
+      const map: Record<string, string> = { low: "low", medium: "medium", high: "max" }
+      request.reasoning_effort = map[effort] ?? "high"
+    } else if (modelId.includes("qwen")) {
+      request.enable_thinking = true
+      const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768 }
+      request.thinking_budget = budgets[effort] ?? 16384
+    } else if (modelId.includes("glm") || modelId.includes("kimi")) {
+      request.enable_thinking = effort !== "low"
+    } else if (modelId.includes("claude")) {
+      const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768 }
+      request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 }
+    } else {
+      const map: Record<string, string> = { low: "low", medium: "medium", high: "high" }
+      request.reasoning_effort = map[effort] ?? "medium"
     }
   }
 

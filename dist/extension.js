@@ -110,11 +110,23 @@ var REASONING_MODELS = [
   "gpt-5",
   "grok-4",
   "kimi-k2",
+  "kimi-k3",
   "deepseek-r1",
+  "deepseek-v3",
+  "deepseek-v4",
   "qwen3",
+  "qwen3.5",
+  "qwen3.6",
+  "qwen3.7",
+  "qwen3.8",
   "gemini-2.5-pro",
   "gemini-3",
+  "gemini-3.1",
   "minimax-m",
+  "mimo",
+  "glm-5",
+  "glm-5.1",
+  "glm-5.2",
   "claude-opus",
   "claude-sonnet"
 ];
@@ -497,7 +509,6 @@ var KiloChatProvider = class {
     const gatewayMessages = await this.convertMessages(messages, model.id, progress, token);
     const tools = options.tools ? this.convertTools(options.tools) : void 0;
     const fullModel = (await this.modelProvider.getModels()).find((m) => m.id === model.id);
-    const reasoning = this.buildReasoning(fullModel);
     const config = vscode4.workspace.getConfiguration("kilo-lm");
     const temperature = config.get("temperature", 0.2);
     const maxTokensOverride = config.get("maxTokens", 0);
@@ -509,9 +520,7 @@ var KiloChatProvider = class {
       max_tokens: maxTokensOverride > 0 ? maxTokensOverride : void 0,
       tools
     };
-    if (reasoning) {
-      request.reasoning = reasoning;
-    }
+    this.applyReasoning(request, fullModel);
     const maxRetries = 3;
     let lastError = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -739,21 +748,34 @@ var KiloChatProvider = class {
       reader.releaseLock();
     }
   }
-  buildReasoning(model) {
-    if (!model) return null;
+  applyReasoning(request, model) {
+    if (!model) return;
     if (model.reasoningRequired) {
-      return { enabled: true, effort: "high" };
+      request.reasoning_effort = "high";
+      return;
     }
-    if (!model.supportsReasoning) return null;
-    switch (this.reasoningEffort) {
-      case "off":
-        return null;
-      case "low":
-        return { enabled: true, effort: "low" };
-      case "medium":
-        return { enabled: true, effort: "medium" };
-      case "high":
-        return { enabled: true, effort: "high", budget_tokens: 32e3 };
+    if (!model.supportsReasoning) return;
+    const effort = this.reasoningEffort;
+    if (effort === "off") return;
+    const modelId = model.id.toLowerCase();
+    if (modelId.includes("minimax")) {
+      const type = effort === "low" ? "disabled" : "adaptive";
+      request.thinking = { type };
+    } else if (modelId.includes("deepseek")) {
+      const map = { low: "low", medium: "medium", high: "max" };
+      request.reasoning_effort = map[effort] ?? "high";
+    } else if (modelId.includes("qwen")) {
+      request.enable_thinking = true;
+      const budgets = { low: 4096, medium: 16384, high: 32768 };
+      request.thinking_budget = budgets[effort] ?? 16384;
+    } else if (modelId.includes("glm") || modelId.includes("kimi")) {
+      request.enable_thinking = effort !== "low";
+    } else if (modelId.includes("claude")) {
+      const budgets = { low: 4096, medium: 16384, high: 32768 };
+      request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 };
+    } else {
+      const map = { low: "low", medium: "medium", high: "high" };
+      request.reasoning_effort = map[effort] ?? "medium";
     }
   }
   convertTools(tools) {
