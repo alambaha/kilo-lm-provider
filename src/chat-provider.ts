@@ -38,7 +38,7 @@ interface GatewayTool {
 
 export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   private reasoningEffort: ReasoningEffort = "medium"
-  private visionProxy = VisionProxy.getInstance()
+  readonly visionProxy = VisionProxy.getInstance()
   private usageTracker = UsageTracker.getInstance()
 
   constructor(

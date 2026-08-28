@@ -33,6 +33,12 @@ export function activate(context: vscode.ExtensionContext) {
   usageTracker.onUsageChanged("statusbar", updateStatusBar)
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
+      await chatProvider.visionProxy.configureVisionProxy()
+    }),
+  )
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("kilo-lm.login", async () => {
       await auth.login()
     }),

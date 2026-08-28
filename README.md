@@ -1,65 +1,105 @@
 # Kilo Language Model Provider for VS Code
 
-A VS Code extension that brings **all Kilo Gateway models** into GitHub Copilot Chat's model picker — Claude Opus, GPT-5, Gemini, DeepSeek, Grok, and 500+ more.
+Access all 500+ Kilo Gateway models in GitHub Copilot Chat — Claude Opus, GPT-5, Gemini, DeepSeek, Grok, and more.
 
 ## Features
 
-- **500+ models** from Kilo Gateway in Copilot Chat
+- **500+ models** from Kilo Gateway catalog
+- **Custom models** — add any OpenAI-compatible endpoint (Ollama, OpenRouter, vLLM, etc.)
+- **Vision Proxy** — text-only models can "see" images via a vision-capable model
+- **Thinking controls** — per-model reasoning effort (off/low/medium/high)
+- **Thinking blocks** — collapsible reasoning in chat (via LanguageModelThinkingPart)
+- **Usage tracking** — real-time cost display in status bar
+- **Auto-retry** — exponential backoff for 502/503/429 errors
+- **Context overflow retry** — auto-reduces tokens and retries on context-too-long
 - **Kilo OAuth** authentication (same as Kilo Code)
-- **Streaming** responses with tool calling support
-- **Model capabilities** — tool calling, vision, context window
-- **No API key management** — uses your Kilo account
 
-## Installation
+## Quick Start
 
-```bash
-# Build
-npm install
-npm run build
+1. Install from [VS Code Marketplace](https://marketplace.visualstudio.com/) (search "Kilo Gateway") or `code --install-extension kilo-lm-provider-0.1.0.vsix`
+2. Run `Kilo: Login` from Command Palette (`Ctrl+Shift+P`)
+3. Get your API key from [app.kilo.ai](https://app.kilo.ai) → Profile → API Key
+4. Open Copilot Chat → model dropdown → **Kilo Gateway** → pick any model
 
-# Package
-npx vsce package
+## Commands
 
-# Install in VS Code
-code --install-extension kilo-lm-provider-0.1.0.vsix
+| Command | Description |
+|---------|-------------|
+| `Kilo: Login` | Enter your Kilo API key |
+| `Kilo: Logout` | Remove stored API key |
+| `Kilo: Set Reasoning Effort` | Toggle thinking depth (off/low/medium/high) |
+| `Kilo: Configure Vision Proxy` | Pick which model describes images for text-only models |
+| `Kilo: Show Usage` | View session cost and token usage |
+| `Kilo: Refresh Models` | Reload model catalog from Kilo Gateway |
+
+## Vision Proxy
+
+Text-only models can't process images. Vision Proxy sends images to a vision-capable model (Claude, GPT-4o, Gemini) and feeds the description to your selected model.
+
+**Setup:** Run `Kilo: Configure Vision Proxy` → pick a vision-capable model from the list.
+
+**How it works:**
+1. You drop an image into chat
+2. Extension sends image to the vision model
+3. Vision model returns a structured description (text extraction + visual context)
+4. Description is sent to your selected model as `[Image Description: ...]`
+
+**Settings:**
+- `kilo-lm.visionModel` — model ID for image description (auto-detected if empty)
+- `kilo-lm.visionPrompt` — custom prompt for image description
+
+## Custom Models
+
+Add any OpenAI-compatible endpoint alongside Kilo Gateway models:
+
+```json
+{
+  "kilo-lm.customModels": [
+    {
+      "id": "ollama/llama3.3",
+      "name": "Ollama Llama 3.3",
+      "baseUrl": "http://localhost:11434/v1",
+      "apiKey": "ollama",
+      "contextLength": 131072,
+      "maxOutputTokens": 32768,
+      "supportsTools": true,
+      "supportsImages": false,
+      "supportsReasoning": false
+    }
+  ]
+}
 ```
 
-## Usage
+## Reasoning/Thinking
 
-1. Open Copilot Chat in VS Code
-2. Click the model dropdown → select **Kilo Gateway**
-3. First time: authenticate with Kilo OAuth
-4. Pick any model from the Kilo catalog
+Per-model reasoning effort control:
+- **Off** — fastest, no reasoning tokens
+- **Low** — minimal thinking for quick tasks
+- **Medium** — balanced (default)
+- **High** — maximum thinking for complex problems (uses more tokens)
+
+Models that require reasoning (e.g., `kimi-k2-thinking`) are always forced to high.
+
+## Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `kilo-lm.reasoningEffort` | `medium` | Thinking depth (off/low/medium/high) |
+| `kilo-lm.visionModel` | *(auto)* | Vision proxy model ID |
+| `kilo-lm.visionPrompt` | built-in | Image description prompt |
+| `kilo-lm.customModels` | `[]` | Custom OpenAI-compatible models |
 
 ## Architecture
 
 ```
 src/
-├── extension.ts      # Activation + command registration
-├── auth.ts           # Kilo OAuth flow (PKCE)
-├── models.ts         # Kilo Gateway model fetching
-└── chat-provider.ts  # LanguageModelChatProvider implementation
+├── extension.ts      # Activation + commands + status bar
+├── auth.ts           # Kilo API key management
+├── models.ts         # Model catalog (Kilo Gateway + custom)
+├── chat-provider.ts  # LanguageModelChatProvider implementation
+├── vision.ts         # Vision Proxy with LRU cache
+└── usage.ts          # Token/cost tracking
 ```
-
-## How It Works
-
-1. Registers as `kilo` vendor via `vscode.lm.registerLanguageModelChatProvider`
-2. Fetches model catalog from `https://api.kilo.ai/api/gateway/models`
-3. Authenticates via Kilo OAuth (PKCE flow)
-4. Routes chat requests through Kilo Gateway's OpenAI-compatible API
-5. Streams responses back to Copilot Chat
-
-## Model Access
-
-All models available through Kilo Gateway:
-- **Anthropic**: Claude Opus 4.7, Sonnet 4.6, Haiku 4.5
-- **OpenAI**: GPT-5.4, GPT-5.4-mini
-- **Google**: Gemini 3.1 Pro, Gemini 2.5 Flash
-- **xAI**: Grok 4, Grok Code Fast
-- **DeepSeek**: DeepSeek V3.2
-- **MiniMax**: MiniMax M2.7
-- **Moonshot**: Kimi K2.5
-- **And 500+ more**
 
 ## License
 

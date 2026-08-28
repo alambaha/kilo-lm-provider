@@ -32,6 +32,11 @@
         "category": "Kilo"
       },
       {
+        "command": "kilo-lm.configureVisionProxy",
+        "title": "Kilo: Configure Vision Proxy",
+        "category": "Kilo"
+      },
+      {
         "command": "kilo-lm.setReasoningEffort",
         "title": "Kilo: Set Reasoning Effort",
         "category": "Kilo"

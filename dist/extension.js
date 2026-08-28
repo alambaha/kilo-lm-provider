@@ -239,6 +239,7 @@ var VisionProxy = class _VisionProxy {
   static instance = null;
   cache = /* @__PURE__ */ new Map();
   cacheLimit = 100;
+  cacheTtl = 36e5;
   static getInstance() {
     if (!_VisionProxy.instance) {
       _VisionProxy.instance = new _VisionProxy();
@@ -246,35 +247,36 @@ var VisionProxy = class _VisionProxy {
     return _VisionProxy.instance;
   }
   async describeImage(imageData, mimeType) {
-    const cacheKey = `${imageData}:${mimeType}`;
+    const cacheKey = this.hashData(imageData, mimeType);
     const cached = this.cache.get(cacheKey);
-    if (cached) return cached;
+    if (cached && Date.now() - cached.timestamp < this.cacheTtl) {
+      return cached.result;
+    }
     const visionModel = await this.selectVisionModel();
     if (!visionModel) {
-      throw new Error("No vision-capable model available. Install a model like Claude or GPT-4o for image support.");
+      throw new Error("No vision-capable model available. Install Claude, GPT-4o, or configure a vision model.");
     }
-    const prompt = vscode3.workspace.getConfiguration("kilo-lm").get(
-      "visionPrompt",
-      "Describe the visual contents of this image in detail, including any text, objects, people, UI elements, or code that would be relevant for understanding it. Focus on factual visual elements."
-    );
-    const messages = [
-      vscode3.LanguageModelChatMessage.User(prompt),
-      vscode3.LanguageModelChatMessage.User([
-        new vscode3.LanguageModelTextPart("[Image: " + mimeType + "]")
-      ])
-    ];
+    const prompt = vscode3.workspace.getConfiguration("kilo-lm").get("visionPrompt", DEFAULT_VISION_PROMPT);
     try {
-      const response = await visionModel.sendRequest(messages, {}, new vscode3.CancellationTokenSource().token);
+      const messages = [
+        vscode3.LanguageModelChatMessage.User([
+          new vscode3.LanguageModelDataPart(imageData, mimeType),
+          new vscode3.LanguageModelTextPart(prompt)
+        ])
+      ];
+      const tokenSource = new vscode3.CancellationTokenSource();
+      const response = await visionModel.sendRequest(messages, {}, tokenSource.token);
       let description = "";
       for await (const chunk of response.text) {
         description += chunk;
       }
-      const result = { description, modelUsed: visionModel.id };
+      tokenSource.dispose();
+      const result = { description: description.trim(), modelUsed: visionModel.id };
       if (this.cache.size >= this.cacheLimit) {
-        const firstKey = this.cache.keys().next().value;
-        if (firstKey) this.cache.delete(firstKey);
+        const oldest = this.cache.keys().next().value;
+        if (oldest) this.cache.delete(oldest);
       }
-      this.cache.set(cacheKey, result);
+      this.cache.set(cacheKey, { result, timestamp: Date.now() });
       return result;
     } catch (err) {
       throw new Error(`Vision proxy failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -288,9 +290,50 @@ var VisionProxy = class _VisionProxy {
       if (match) return match;
     }
     const visionCapable = models.filter(
-      (m) => m.vendor === "copilot" || m.name?.toLowerCase().includes("claude") || m.name?.toLowerCase().includes("gpt-4")
+      (m) => m.vendor === "copilot" || m.id?.toLowerCase().includes("claude") || m.id?.toLowerCase().includes("gpt-4") || m.id?.toLowerCase().includes("gemini") || m.id?.toLowerCase().includes("grok")
     );
-    return visionCapable[0] ?? models[0] ?? null;
+    return visionCapable[0] ?? null;
+  }
+  async configureVisionProxy() {
+    const models = await vscode3.lm.selectChatModels();
+    const currentId = vscode3.workspace.getConfiguration("kilo-lm").get("visionModel");
+    const items = [
+      { label: "$(close) None", description: "Disable vision proxy", detail: "Images will be ignored for text-only models" },
+      { label: "$(edit) Customize prompt", description: "Edit the image description prompt" },
+      { label: "", kind: vscode3.QuickPickItemKind.Separator }
+    ];
+    const modelItems = models.map((m) => ({
+      label: m.id === currentId ? "$(check) " + m.id : m.id,
+      description: m.vendor ?? "",
+      detail: m.id === currentId ? "Currently selected" : void 0
+    }));
+    items.push(...modelItems);
+    const picked = await vscode3.window.showQuickPick(items, {
+      placeHolder: "Select vision proxy model (images will be described by this model)",
+      matchOnDescription: true
+    });
+    if (!picked) return;
+    if (picked.label === "$(close) None") {
+      await vscode3.workspace.getConfiguration("kilo-lm").update("visionModel", "", vscode3.ConfigurationTarget.Global);
+      vscode3.window.showInformationMessage("Kilo: Vision proxy disabled");
+    } else if (picked.label === "$(edit) Customize prompt") {
+      await this.configureVisionPrompt();
+    } else {
+      const modelId = picked.label.replace("$(check) ", "");
+      await vscode3.workspace.getConfiguration("kilo-lm").update("visionModel", modelId, vscode3.ConfigurationTarget.Global);
+      vscode3.window.showInformationMessage(`Kilo: Vision proxy set to "${modelId}"`);
+    }
+  }
+  async configureVisionPrompt() {
+    const current = vscode3.workspace.getConfiguration("kilo-lm").get("visionPrompt", DEFAULT_VISION_PROMPT);
+    const result = await vscode3.window.showInputBox({
+      prompt: "Vision proxy prompt",
+      value: current,
+      ignoreFocusOut: true
+    });
+    if (result !== void 0) {
+      await vscode3.workspace.getConfiguration("kilo-lm").update("visionPrompt", result, vscode3.ConfigurationTarget.Global);
+    }
   }
   hasVisionCapability(modelId) {
     const visionPatterns = ["claude", "gpt-4", "gemini", "grok"];
@@ -299,7 +342,36 @@ var VisionProxy = class _VisionProxy {
   clearCache() {
     this.cache.clear();
   }
+  hashData(data, mimeType) {
+    let hash = 0;
+    const str = mimeType + data.length.toString();
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i) | 0;
+    }
+    return hash.toString(36);
+  }
 };
+var DEFAULT_VISION_PROMPT = `Text extraction is mandatory. Visual description required unless the image is tightly cropped text-only.
+
+TASK 1 \u2014 TEXT EXTRACTION (always):
+1. Transcribe every detectable character verbatim \u2014 all text, symbols, and glyphs of any kind, in any location. Never correct, alter, summarize, paraphrase, or truncate the source.
+2. Preserve formatting: monospaced \u2192 code block, proportional \u2192 plain text, tabular \u2192 Markdown table.
+3. Annotate spatial position with [Region: name] headers for multi-region images.
+4. Uncertainty markers: [?] = uncertain char, [unclear] = uncertain span, [unreadable] = illegible.
+
+TASK 2 \u2014 VISUAL DESCRIPTION (unless tightly cropped text-only):
+1. Describe all non-text visual content: window chrome, UI state, colors, diagrams.
+2. Diagrams: describe structure \u2014 what labels represent, how elements connect.
+
+OUTPUT FORMAT:
+--- Extracted Text ---
+[transcription]
+--- Visual Context ---
+[description]
+
+SPECIAL CASES:
+- Handwriting: best-effort; prepend "(Handwriting \u2014 lower confidence.)"
+- No text: output "No text detected."`;
 
 // src/usage.ts
 var UsageTracker = class _UsageTracker {
@@ -672,6 +744,11 @@ Requests: ${summary.requestCount}`;
     }
   };
   usageTracker.onUsageChanged("statusbar", updateStatusBar);
+  context.subscriptions.push(
+    vscode5.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
+      await chatProvider.visionProxy.configureVisionProxy();
+    })
+  );
   context.subscriptions.push(
     vscode5.commands.registerCommand("kilo-lm.login", async () => {
       await auth.login();
