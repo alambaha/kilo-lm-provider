@@ -101,6 +101,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
             effortLevels = ["off", "low", "medium", "high"]
           }
 
+          info.thinking = true
           info.supportsReasoningEffort = effortLevels
           info.reasoningEffortFormat = "chat-completions"
         }
@@ -147,7 +148,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     const config = vscode.workspace.getConfiguration("kilo-lm")
     const temperature = config.get<number>("temperature", 0.2)
     const maxTokensOverride = config.get<number>("maxTokens", 0)
-    const modelConfig = (options as any).modelConfiguration ?? {}
+    const modelConfig = (options as any).modelConfiguration ?? (options as any).modelOptions ?? {}
 
     const request: GatewayRequest = {
       model: model.id,

@@ -490,6 +490,7 @@ var KiloChatProvider = class {
           } else if (modelId.includes("mimo")) {
             effortLevels = ["off", "low", "medium", "high"];
           }
+          info.thinking = true;
           info.supportsReasoningEffort = effortLevels;
           info.reasoningEffortFormat = "chat-completions";
         }
@@ -525,7 +526,7 @@ var KiloChatProvider = class {
     const config = vscode4.workspace.getConfiguration("kilo-lm");
     const temperature = config.get("temperature", 0.2);
     const maxTokensOverride = config.get("maxTokens", 0);
-    const modelConfig = options.modelConfiguration ?? {};
+    const modelConfig = options.modelConfiguration ?? options.modelOptions ?? {};
     const request = {
       model: model.id,
       messages: gatewayMessages,
