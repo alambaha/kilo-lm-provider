@@ -1,0 +1,114 @@
+{
+  "name": "kilo-lm-provider",
+  "displayName": "Kilo Language Model Provider",
+  "description": "Access all Kilo Gateway models in GitHub Copilot Chat — Claude, GPT, Gemini, DeepSeek, and 500+ more",
+  "version": "0.1.0",
+  "publisher": "kilo",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": ["AI", "Chat", "Machine Learning"],
+  "keywords": ["kilo", "copilot", "chat", "llm", "claude", "gpt", "gemini", "ai"],
+  "activationEvents": [
+    "onLanguageModelChatProvider:kilo"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "kilo-lm.login",
+        "title": "Kilo: Login",
+        "category": "Kilo"
+      },
+      {
+        "command": "kilo-lm.logout",
+        "title": "Kilo: Logout",
+        "category": "Kilo"
+      },
+      {
+        "command": "kilo-lm.setReasoningEffort",
+        "title": "Kilo: Set Reasoning Effort",
+        "category": "Kilo"
+      },
+      {
+        "command": "kilo-lm.setReasoningEffort",
+        "title": "Kilo: Set Reasoning Effort",
+        "category": "Kilo"
+      },
+      {
+        "command": "kilo-lm.showUsage",
+        "title": "Kilo: Show Usage",
+        "category": "Kilo"
+      },
+      {
+        "command": "kilo-lm.refreshModels",
+        "title": "Kilo: Refresh Models",
+        "category": "Kilo"
+      }
+    ],
+    "languageModelChatProviders": [
+      {
+        "vendor": "kilo",
+        "displayName": "Kilo Gateway"
+      }
+    ],
+    "configuration": {
+      "title": "Kilo LM Provider",
+      "properties": {
+        "kilo-lm.autoLogin": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically prompt for login when selecting a Kilo model"
+        },
+        "kilo-lm.reasoningEffort": {
+          "type": "string",
+          "default": "medium",
+          "enum": ["off", "low", "medium", "high"],
+          "enumDescriptions": {
+            "off": "No reasoning/thinking — fastest responses",
+            "low": "Minimal thinking for quick tasks",
+            "medium": "Balanced reasoning for most tasks",
+            "high": "Maximum thinking for complex problems (uses more tokens)"
+          },
+          "description": "Reasoning/thinking effort level for models that support it (Claude Opus, GPT-5, Gemini 3, etc.)"
+        },
+        "kilo-lm.visionModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model ID for vision proxy (describes images for text-only models). Leave empty for auto-detection."
+        },
+        "kilo-lm.visionPrompt": {
+          "type": "string",
+          "editPresentation": "multilineText",
+          "default": "Describe the visual contents of this image in detail, including any text, objects, people, UI elements, or code that would be relevant for understanding it. Focus on factual visual elements.",
+          "description": "Prompt sent to the vision proxy model when describing image attachments."
+        },
+        "kilo-lm.showPricing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show model pricing in the model picker"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.104.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0",
+    "@vscode/vsce": "^3.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kilo-Org/kilo-lm-provider"
+  }
+}
