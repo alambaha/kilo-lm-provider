@@ -56,21 +56,76 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("kilo-lm.setReasoningEffort", async () => {
-      const current = vscode.workspace.getConfiguration("kilo-lm").get<string>("reasoningEffort", "medium")
       const result = await vscode.window.showQuickPick(
         [
-          { label: "$(zap) Off", description: "No reasoning — fastest", value: "off" },
-          { label: "$(dash) Low", description: "Minimal thinking", value: "low" },
-          { label: "$(circle-large-outline) Medium", description: "Balanced (default)", value: "medium" },
-          { label: "$(flame) High", description: "Maximum thinking (more tokens)", value: "high" },
+          { label: "$(flame) DeepSeek", description: "Set thinking effort for DeepSeek models", value: "deepseek" },
+          { label: "$(flame) GLM", description: "Set thinking effort for GLM models", value: "glm" },
+          { label: "$(flame) Kimi", description: "Set thinking for Kimi models", value: "kimi" },
+          { label: "$(flame) MiniMax", description: "Set thinking for MiniMax models", value: "minimax" },
+          { label: "$(flame) MiMo", description: "Set thinking effort for MiMo models", value: "mimo" },
+          { label: "$(flame) Qwen", description: "Set thinking for Qwen models", value: "qwen" },
         ],
-        { placeHolder: `Reasoning Effort: ${current}` },
+        { placeHolder: "Select model family" },
       )
-      if (result) {
-        await vscode.workspace
-          .getConfiguration("kilo-lm")
-          .update("reasoningEffort", result.value, vscode.ConfigurationTarget.Global)
-        vscode.window.showInformationMessage(`Kilo: Reasoning effort set to "${result.value}"`)
+      if (!result) return
+
+      const family = result.value
+      const config = vscode.workspace.getConfiguration("kilo-lm")
+
+      if (family === "deepseek") {
+        const pick = await vscode.window.showQuickPick(
+          [
+            { label: "$(zap) Off", value: "off" },
+            { label: "$(dash) Low", value: "low" },
+            { label: "$(circle-large-outline) Medium", value: "medium" },
+            { label: "$(flame) High", value: "high" },
+            { label: "$(rocket) Max", value: "max" },
+          ],
+          { placeHolder: "DeepSeek thinking effort" },
+        )
+        if (pick) {
+          await config.update("thinking.deepseek", pick.value, vscode.ConfigurationTarget.Global)
+          vscode.window.showInformationMessage(`Kilo: DeepSeek thinking set to "${pick.value}"`)
+        }
+      } else if (family === "qwen") {
+        const pick = await vscode.window.showQuickPick(
+          [
+            { label: "$(zap) Off", value: "off" },
+            { label: "$(sync) Auto", value: "auto" },
+            { label: "$(check) On", value: "on" },
+          ],
+          { placeHolder: "Qwen thinking mode" },
+        )
+        if (pick) {
+          await config.update("thinking.qwen", pick.value, vscode.ConfigurationTarget.Global)
+          vscode.window.showInformationMessage(`Kilo: Qwen thinking set to "${pick.value}"`)
+        }
+      } else if (family === "minimax" || family === "kimi" || family === "glm") {
+        const pick = await vscode.window.showQuickPick(
+          [
+            { label: "$(zap) Off", value: "off" },
+            { label: "$(check) On", value: "on" },
+          ],
+          { placeHolder: `${family} thinking` },
+        )
+        if (pick) {
+          await config.update(`thinking.${family}`, pick.value, vscode.ConfigurationTarget.Global)
+          vscode.window.showInformationMessage(`Kilo: ${family} thinking set to "${pick.value}"`)
+        }
+      } else if (family === "mimo") {
+        const pick = await vscode.window.showQuickPick(
+          [
+            { label: "$(zap) Off", value: "off" },
+            { label: "$(dash) Low", value: "low" },
+            { label: "$(circle-large-outline) Medium", value: "medium" },
+            { label: "$(flame) High", value: "high" },
+          ],
+          { placeHolder: "MiMo thinking effort" },
+        )
+        if (pick) {
+          await config.update("thinking.mimo", pick.value, vscode.ConfigurationTarget.Global)
+          vscode.window.showInformationMessage(`Kilo: MiMo thinking set to "${pick.value}"`)
+        }
       }
     }),
   )

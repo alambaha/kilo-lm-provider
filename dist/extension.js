@@ -445,22 +445,15 @@ var KiloChatProvider = class {
   constructor(auth, modelProvider) {
     this.auth = auth;
     this.modelProvider = modelProvider;
-    this.loadConfig();
     vscode4.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("kilo-lm.reasoning") || e.affectsConfiguration("kilo-lm.temperature") || e.affectsConfiguration("kilo-lm.maxTokens")) {
-        this.loadConfig();
+      if (e.affectsConfiguration("kilo-lm.temperature") || e.affectsConfiguration("kilo-lm.maxTokens")) {
       }
     });
   }
-  reasoningEffort = "medium";
   visionProxy = VisionProxy.getInstance();
   usageTracker = UsageTracker.getInstance();
   requestLog = [];
   maxLogSize = 100;
-  loadConfig() {
-    const config = vscode4.workspace.getConfiguration("kilo-lm");
-    this.reasoningEffort = config.get("reasoningEffort", "medium");
-  }
   getRequestLog() {
     return [...this.requestLog];
   }
@@ -748,6 +741,17 @@ var KiloChatProvider = class {
       reader.releaseLock();
     }
   }
+  getFamilyEffort(modelId) {
+    const config = vscode4.workspace.getConfiguration("kilo-lm");
+    const lower = modelId.toLowerCase();
+    if (lower.includes("deepseek")) return config.get("thinking.deepseek", "off");
+    if (lower.includes("glm")) return config.get("thinking.glm", "off");
+    if (lower.includes("kimi")) return config.get("thinking.kimi", "off");
+    if (lower.includes("minimax")) return config.get("thinking.minimax", "off");
+    if (lower.includes("mimo")) return config.get("thinking.mimo", "off");
+    if (lower.includes("qwen")) return config.get("thinking.qwen", "off");
+    return "off";
+  }
   applyReasoning(request, model) {
     if (!model) return;
     if (model.reasoningRequired) {
@@ -755,26 +759,28 @@ var KiloChatProvider = class {
       return;
     }
     if (!model.supportsReasoning) return;
-    const effort = this.reasoningEffort;
-    if (effort === "off") return;
+    const effort = this.getFamilyEffort(model.id);
     const modelId = model.id.toLowerCase();
     if (modelId.includes("minimax")) {
-      const type = effort === "low" ? "disabled" : "adaptive";
-      request.thinking = { type };
+      request.thinking = { type: effort === "off" ? "disabled" : "adaptive" };
     } else if (modelId.includes("deepseek")) {
-      const map = { low: "low", medium: "medium", high: "max" };
+      const map = { off: "off", low: "low", medium: "medium", high: "high", max: "max" };
       request.reasoning_effort = map[effort] ?? "high";
     } else if (modelId.includes("qwen")) {
+      if (effort === "off") return;
       request.enable_thinking = true;
-      const budgets = { low: 4096, medium: 16384, high: 32768 };
-      request.thinking_budget = budgets[effort] ?? 16384;
+      const config = vscode4.workspace.getConfiguration("kilo-lm");
+      const budget = config.get("thinking.qwenBudget", "auto");
+      if (budget !== "auto") {
+        request.thinking_budget = parseInt(budget, 10);
+      }
     } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-      request.enable_thinking = effort !== "low";
+      request.enable_thinking = effort !== "off";
     } else if (modelId.includes("claude")) {
       const budgets = { low: 4096, medium: 16384, high: 32768 };
       request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 };
     } else {
-      const map = { low: "low", medium: "medium", high: "high" };
+      const map = { off: "off", low: "low", medium: "medium", high: "high" };
       request.reasoning_effort = map[effort] ?? "medium";
     }
   }
@@ -838,19 +844,74 @@ Requests: ${summary.requestCount}`;
     );
     context.subscriptions.push(
       vscode5.commands.registerCommand("kilo-lm.setReasoningEffort", async () => {
-        const current = vscode5.workspace.getConfiguration("kilo-lm").get("reasoningEffort", "medium");
         const result = await vscode5.window.showQuickPick(
           [
-            { label: "$(zap) Off", description: "No reasoning \u2014 fastest", value: "off" },
-            { label: "$(dash) Low", description: "Minimal thinking", value: "low" },
-            { label: "$(circle-large-outline) Medium", description: "Balanced (default)", value: "medium" },
-            { label: "$(flame) High", description: "Maximum thinking (more tokens)", value: "high" }
+            { label: "$(flame) DeepSeek", description: "Set thinking effort for DeepSeek models", value: "deepseek" },
+            { label: "$(flame) GLM", description: "Set thinking effort for GLM models", value: "glm" },
+            { label: "$(flame) Kimi", description: "Set thinking for Kimi models", value: "kimi" },
+            { label: "$(flame) MiniMax", description: "Set thinking for MiniMax models", value: "minimax" },
+            { label: "$(flame) MiMo", description: "Set thinking effort for MiMo models", value: "mimo" },
+            { label: "$(flame) Qwen", description: "Set thinking for Qwen models", value: "qwen" }
           ],
-          { placeHolder: `Reasoning Effort: ${current}` }
+          { placeHolder: "Select model family" }
         );
-        if (result) {
-          await vscode5.workspace.getConfiguration("kilo-lm").update("reasoningEffort", result.value, vscode5.ConfigurationTarget.Global);
-          vscode5.window.showInformationMessage(`Kilo: Reasoning effort set to "${result.value}"`);
+        if (!result) return;
+        const family = result.value;
+        const config = vscode5.workspace.getConfiguration("kilo-lm");
+        if (family === "deepseek") {
+          const pick = await vscode5.window.showQuickPick(
+            [
+              { label: "$(zap) Off", value: "off" },
+              { label: "$(dash) Low", value: "low" },
+              { label: "$(circle-large-outline) Medium", value: "medium" },
+              { label: "$(flame) High", value: "high" },
+              { label: "$(rocket) Max", value: "max" }
+            ],
+            { placeHolder: "DeepSeek thinking effort" }
+          );
+          if (pick) {
+            await config.update("thinking.deepseek", pick.value, vscode5.ConfigurationTarget.Global);
+            vscode5.window.showInformationMessage(`Kilo: DeepSeek thinking set to "${pick.value}"`);
+          }
+        } else if (family === "qwen") {
+          const pick = await vscode5.window.showQuickPick(
+            [
+              { label: "$(zap) Off", value: "off" },
+              { label: "$(sync) Auto", value: "auto" },
+              { label: "$(check) On", value: "on" }
+            ],
+            { placeHolder: "Qwen thinking mode" }
+          );
+          if (pick) {
+            await config.update("thinking.qwen", pick.value, vscode5.ConfigurationTarget.Global);
+            vscode5.window.showInformationMessage(`Kilo: Qwen thinking set to "${pick.value}"`);
+          }
+        } else if (family === "minimax" || family === "kimi" || family === "glm") {
+          const pick = await vscode5.window.showQuickPick(
+            [
+              { label: "$(zap) Off", value: "off" },
+              { label: "$(check) On", value: "on" }
+            ],
+            { placeHolder: `${family} thinking` }
+          );
+          if (pick) {
+            await config.update(`thinking.${family}`, pick.value, vscode5.ConfigurationTarget.Global);
+            vscode5.window.showInformationMessage(`Kilo: ${family} thinking set to "${pick.value}"`);
+          }
+        } else if (family === "mimo") {
+          const pick = await vscode5.window.showQuickPick(
+            [
+              { label: "$(zap) Off", value: "off" },
+              { label: "$(dash) Low", value: "low" },
+              { label: "$(circle-large-outline) Medium", value: "medium" },
+              { label: "$(flame) High", value: "high" }
+            ],
+            { placeHolder: "MiMo thinking effort" }
+          );
+          if (pick) {
+            await config.update("thinking.mimo", pick.value, vscode5.ConfigurationTarget.Global);
+            vscode5.window.showInformationMessage(`Kilo: MiMo thinking set to "${pick.value}"`);
+          }
         }
       })
     );

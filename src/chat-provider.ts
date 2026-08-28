@@ -1,6 +1,6 @@
 import * as vscode from "vscode"
 import { KiloAuth } from "./auth"
-import { KiloModelProvider, KiloModel, ReasoningEffort } from "./models"
+import { KiloModelProvider, KiloModel } from "./models"
 import { VisionProxy } from "./vision"
 import { UsageTracker } from "./usage"
 
@@ -44,7 +44,6 @@ export interface RequestLog {
 }
 
 export class KiloChatProvider implements vscode.LanguageModelChatProvider {
-  private reasoningEffort: ReasoningEffort = "medium"
   readonly visionProxy = VisionProxy.getInstance()
   private usageTracker = UsageTracker.getInstance()
   private requestLog: RequestLog[] = []
@@ -54,17 +53,11 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     private auth: KiloAuth,
     private modelProvider: KiloModelProvider,
   ) {
-    this.loadConfig()
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("kilo-lm.reasoning") || e.affectsConfiguration("kilo-lm.temperature") || e.affectsConfiguration("kilo-lm.maxTokens")) {
-        this.loadConfig()
+      if (e.affectsConfiguration("kilo-lm.temperature") || e.affectsConfiguration("kilo-lm.maxTokens")) {
+        // config changes picked up at request time
       }
     })
-  }
-
-  private loadConfig(): void {
-    const config = vscode.workspace.getConfiguration("kilo-lm")
-    this.reasoningEffort = config.get<ReasoningEffort>("reasoningEffort", "medium")
   }
 
   getRequestLog(): RequestLog[] {
@@ -416,6 +409,18 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     }
   }
 
+  private getFamilyEffort(modelId: string): string {
+    const config = vscode.workspace.getConfiguration("kilo-lm")
+    const lower = modelId.toLowerCase()
+    if (lower.includes("deepseek")) return config.get<string>("thinking.deepseek", "off")
+    if (lower.includes("glm")) return config.get<string>("thinking.glm", "off")
+    if (lower.includes("kimi")) return config.get<string>("thinking.kimi", "off")
+    if (lower.includes("minimax")) return config.get<string>("thinking.minimax", "off")
+    if (lower.includes("mimo")) return config.get<string>("thinking.mimo", "off")
+    if (lower.includes("qwen")) return config.get<string>("thinking.qwen", "off")
+    return "off"
+  }
+
   private applyReasoning(request: GatewayRequest, model: KiloModel | undefined): void {
     if (!model) return
 
@@ -426,28 +431,29 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
 
     if (!model.supportsReasoning) return
 
-    const effort = this.reasoningEffort
-    if (effort === "off") return
-
+    const effort = this.getFamilyEffort(model.id)
     const modelId = model.id.toLowerCase()
 
     if (modelId.includes("minimax")) {
-      const type = effort === "low" ? "disabled" : "adaptive"
-      request.thinking = { type }
+      request.thinking = { type: effort === "off" ? "disabled" : "adaptive" }
     } else if (modelId.includes("deepseek")) {
-      const map: Record<string, string> = { low: "low", medium: "medium", high: "max" }
+      const map: Record<string, string> = { off: "off", low: "low", medium: "medium", high: "high", max: "max" }
       request.reasoning_effort = map[effort] ?? "high"
     } else if (modelId.includes("qwen")) {
+      if (effort === "off") return
       request.enable_thinking = true
-      const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768 }
-      request.thinking_budget = budgets[effort] ?? 16384
+      const config = vscode.workspace.getConfiguration("kilo-lm")
+      const budget = config.get<string>("thinking.qwenBudget", "auto")
+      if (budget !== "auto") {
+        request.thinking_budget = parseInt(budget, 10)
+      }
     } else if (modelId.includes("glm") || modelId.includes("kimi")) {
-      request.enable_thinking = effort !== "low"
+      request.enable_thinking = effort !== "off"
     } else if (modelId.includes("claude")) {
       const budgets: Record<string, number> = { low: 4096, medium: 16384, high: 32768 }
       request.thinking = { type: "enabled", budget_tokens: budgets[effort] ?? 16384 }
     } else {
-      const map: Record<string, string> = { low: "low", medium: "medium", high: "high" }
+      const map: Record<string, string> = { off: "off", low: "low", medium: "medium", high: "high" }
       request.reasoning_effort = map[effort] ?? "medium"
     }
   }

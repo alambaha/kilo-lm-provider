@@ -71,17 +71,85 @@
     "configuration": {
       "title": "Kilo LM Provider",
       "properties": {
-        "kilo-lm.reasoningEffort": {
+        "kilo-lm.thinking.deepseek": {
           "type": "string",
-          "default": "medium",
+          "default": "off",
+          "enum": ["off", "low", "medium", "high", "max"],
+          "enumDescriptions": {
+            "off": "No reasoning — fastest",
+            "low": "Light reasoning",
+            "medium": "Balanced reasoning",
+            "high": "Deep reasoning (default)",
+            "max": "Maximum reasoning for complex tasks"
+          },
+          "description": "DeepSeek thinking effort"
+        },
+        "kilo-lm.thinking.glm": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "high", "max"],
+          "enumDescriptions": {
+            "off": "No reasoning",
+            "high": "Balanced reasoning",
+            "max": "Maximum reasoning"
+          },
+          "description": "GLM thinking effort"
+        },
+        "kilo-lm.thinking.kimi": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "on"],
+          "enumDescriptions": {
+            "off": "No reasoning",
+            "on": "Enable thinking"
+          },
+          "description": "Kimi thinking on/off"
+        },
+        "kilo-lm.thinking.minimax": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "on"],
+          "enumDescriptions": {
+            "off": "No reasoning",
+            "on": "Enable thinking"
+          },
+          "description": "MiniMax thinking on/off"
+        },
+        "kilo-lm.thinking.mimo": {
+          "type": "string",
+          "default": "off",
           "enum": ["off", "low", "medium", "high"],
           "enumDescriptions": {
-            "off": "No reasoning/thinking — fastest responses",
-            "low": "Minimal thinking for quick tasks",
-            "medium": "Balanced reasoning for most tasks",
-            "high": "Maximum thinking for complex problems (uses more tokens)"
+            "off": "No reasoning",
+            "low": "Light reasoning",
+            "medium": "Balanced reasoning",
+            "high": "Deep reasoning"
           },
-          "description": "Reasoning/thinking effort level for models that support it (Claude Opus, GPT-5, Gemini 3, etc.)"
+          "description": "MiMo thinking effort"
+        },
+        "kilo-lm.thinking.qwen": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "auto", "on"],
+          "enumDescriptions": {
+            "off": "No reasoning",
+            "auto": "Model decides",
+            "on": "Enable thinking"
+          },
+          "description": "Qwen thinking mode"
+        },
+        "kilo-lm.thinking.qwenBudget": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "4096", "16384", "32768", "81920"],
+          "enumDescriptions": {
+            "auto": "Model decides budget",
+            "4096": "4K tokens (fast)",
+            "16384": "16K tokens (balanced)",
+            "32768": "32K tokens (deep)",
+            "81920": "82K tokens (maximum)"
+          },
+          "description": "Qwen thinking budget (tokens)"
         },
         "kilo-lm.temperature": {
           "type": "number",
