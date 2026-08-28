@@ -5,6 +5,8 @@ import { KiloChatProvider } from "./chat-provider"
 import { UsageTracker } from "./usage"
 
 export function activate(context: vscode.ExtensionContext) {
+  console.log("[Kilo LM] Extension activating...")
+  try {
   const auth = new KiloAuth(context)
   const modelProvider = new KiloModelProvider(auth)
   const chatProvider = new KiloChatProvider(auth, modelProvider)
@@ -12,6 +14,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const provider = vscode.lm.registerLanguageModelChatProvider("kilo", chatProvider)
   context.subscriptions.push(provider)
+  console.log("[Kilo LM] Language model provider registered")
 
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100)
   statusBar.text = "$(brain) Kilo"
@@ -114,6 +117,10 @@ export function activate(context: vscode.ExtensionContext) {
         }
       })
     context.globalState.update("kilo-lm.welcomeShown", true)
+  }
+  } catch (err) {
+    console.error("[Kilo LM] Activation error:", err)
+    throw err
   }
 }
 

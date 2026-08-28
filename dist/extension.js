@@ -719,103 +719,110 @@ var KiloChatProvider = class {
 
 // src/extension.ts
 function activate(context) {
-  const auth = new KiloAuth(context);
-  const modelProvider = new KiloModelProvider(auth);
-  const chatProvider = new KiloChatProvider(auth, modelProvider);
-  const usageTracker = UsageTracker.getInstance();
-  const provider = vscode5.lm.registerLanguageModelChatProvider("kilo", chatProvider);
-  context.subscriptions.push(provider);
-  const statusBar = vscode5.window.createStatusBarItem(vscode5.StatusBarAlignment.Right, 100);
-  statusBar.text = "$(brain) Kilo";
-  statusBar.tooltip = "Kilo Gateway \u2014 Click for usage info";
-  statusBar.command = "kilo-lm.showUsage";
-  statusBar.show();
-  context.subscriptions.push(statusBar);
-  const updateStatusBar = () => {
-    const summary = usageTracker.getSessionSummary();
-    if (summary.requestCount > 0) {
-      statusBar.text = "$(brain) Kilo: $" + summary.sessionCost.toFixed(3);
-      statusBar.tooltip = `Kilo Gateway Usage
+  console.log("[Kilo LM] Extension activating...");
+  try {
+    const auth = new KiloAuth(context);
+    const modelProvider = new KiloModelProvider(auth);
+    const chatProvider = new KiloChatProvider(auth, modelProvider);
+    const usageTracker = UsageTracker.getInstance();
+    const provider = vscode5.lm.registerLanguageModelChatProvider("kilo", chatProvider);
+    context.subscriptions.push(provider);
+    console.log("[Kilo LM] Language model provider registered");
+    const statusBar = vscode5.window.createStatusBarItem(vscode5.StatusBarAlignment.Right, 100);
+    statusBar.text = "$(brain) Kilo";
+    statusBar.tooltip = "Kilo Gateway \u2014 Click for usage info";
+    statusBar.command = "kilo-lm.showUsage";
+    statusBar.show();
+    context.subscriptions.push(statusBar);
+    const updateStatusBar = () => {
+      const summary = usageTracker.getSessionSummary();
+      if (summary.requestCount > 0) {
+        statusBar.text = "$(brain) Kilo: $" + summary.sessionCost.toFixed(3);
+        statusBar.tooltip = `Kilo Gateway Usage
 Session: $${summary.sessionCost.toFixed(4)} (${summary.sessionTokens.toLocaleString()} tokens)
 Requests: ${summary.requestCount}`;
-    } else {
-      statusBar.text = "$(brain) Kilo";
-      statusBar.tooltip = "Kilo Gateway \u2014 Click for usage info";
-    }
-  };
-  usageTracker.onUsageChanged("statusbar", updateStatusBar);
-  context.subscriptions.push(
-    vscode5.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
-      await chatProvider.visionProxy.configureVisionProxy();
-    })
-  );
-  context.subscriptions.push(
-    vscode5.commands.registerCommand("kilo-lm.login", async () => {
-      await auth.login();
-    })
-  );
-  context.subscriptions.push(
-    vscode5.commands.registerCommand("kilo-lm.logout", async () => {
-      await auth.logout();
-    })
-  );
-  context.subscriptions.push(
-    vscode5.commands.registerCommand("kilo-lm.refreshModels", async () => {
-      await modelProvider.refresh();
-      vscode5.window.showInformationMessage("Kilo: Models refreshed");
-    })
-  );
-  context.subscriptions.push(
-    vscode5.commands.registerCommand("kilo-lm.setReasoningEffort", async () => {
-      const current = vscode5.workspace.getConfiguration("kilo-lm").get("reasoningEffort", "medium");
-      const result = await vscode5.window.showQuickPick(
-        [
-          { label: "$(zap) Off", description: "No reasoning \u2014 fastest", value: "off" },
-          { label: "$(dash) Low", description: "Minimal thinking", value: "low" },
-          { label: "$(circle-large-outline) Medium", description: "Balanced (default)", value: "medium" },
-          { label: "$(flame) High", description: "Maximum thinking (more tokens)", value: "high" }
-        ],
-        { placeHolder: `Reasoning Effort: ${current}` }
-      );
-      if (result) {
-        await vscode5.workspace.getConfiguration("kilo-lm").update("reasoningEffort", result.value, vscode5.ConfigurationTarget.Global);
-        vscode5.window.showInformationMessage(`Kilo: Reasoning effort set to "${result.value}"`);
+      } else {
+        statusBar.text = "$(brain) Kilo";
+        statusBar.tooltip = "Kilo Gateway \u2014 Click for usage info";
       }
-    })
-  );
-  context.subscriptions.push(
-    vscode5.commands.registerCommand("kilo-lm.showUsage", async () => {
-      const summary = usageTracker.getSessionSummary();
-      const action = await vscode5.window.showInformationMessage(
-        `Kilo Gateway Usage
+    };
+    usageTracker.onUsageChanged("statusbar", updateStatusBar);
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
+        await chatProvider.visionProxy.configureVisionProxy();
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.login", async () => {
+        await auth.login();
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.logout", async () => {
+        await auth.logout();
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.refreshModels", async () => {
+        await modelProvider.refresh();
+        vscode5.window.showInformationMessage("Kilo: Models refreshed");
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.setReasoningEffort", async () => {
+        const current = vscode5.workspace.getConfiguration("kilo-lm").get("reasoningEffort", "medium");
+        const result = await vscode5.window.showQuickPick(
+          [
+            { label: "$(zap) Off", description: "No reasoning \u2014 fastest", value: "off" },
+            { label: "$(dash) Low", description: "Minimal thinking", value: "low" },
+            { label: "$(circle-large-outline) Medium", description: "Balanced (default)", value: "medium" },
+            { label: "$(flame) High", description: "Maximum thinking (more tokens)", value: "high" }
+          ],
+          { placeHolder: `Reasoning Effort: ${current}` }
+        );
+        if (result) {
+          await vscode5.workspace.getConfiguration("kilo-lm").update("reasoningEffort", result.value, vscode5.ConfigurationTarget.Global);
+          vscode5.window.showInformationMessage(`Kilo: Reasoning effort set to "${result.value}"`);
+        }
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.showUsage", async () => {
+        const summary = usageTracker.getSessionSummary();
+        const action = await vscode5.window.showInformationMessage(
+          `Kilo Gateway Usage
 Session cost: $${summary.sessionCost.toFixed(4)}
 Session tokens: ${summary.sessionTokens.toLocaleString()}
 Requests: ${summary.requestCount}
 Total cost: $${summary.totalCost.toFixed(4)}`,
-        "Reset Session",
-        "Refresh Models"
-      );
-      if (action === "Reset Session") {
-        usageTracker.resetSession();
-        vscode5.window.showInformationMessage("Kilo: Session usage reset");
-      } else if (action === "Refresh Models") {
-        await modelProvider.refresh();
-        vscode5.window.showInformationMessage("Kilo: Models refreshed");
-      }
-    })
-  );
-  const hasShownWelcome = context.globalState.get("kilo-lm.welcomeShown");
-  if (!hasShownWelcome) {
-    vscode5.window.showInformationMessage(
-      "Kilo Gateway is ready! Get your API key from app.kilo.ai \u2192 Profile \u2192 API Key.",
-      "Enter API Key",
-      "Later"
-    ).then((action) => {
-      if (action === "Enter API Key") {
-        vscode5.commands.executeCommand("kilo-lm.login");
-      }
-    });
-    context.globalState.update("kilo-lm.welcomeShown", true);
+          "Reset Session",
+          "Refresh Models"
+        );
+        if (action === "Reset Session") {
+          usageTracker.resetSession();
+          vscode5.window.showInformationMessage("Kilo: Session usage reset");
+        } else if (action === "Refresh Models") {
+          await modelProvider.refresh();
+          vscode5.window.showInformationMessage("Kilo: Models refreshed");
+        }
+      })
+    );
+    const hasShownWelcome = context.globalState.get("kilo-lm.welcomeShown");
+    if (!hasShownWelcome) {
+      vscode5.window.showInformationMessage(
+        "Kilo Gateway is ready! Get your API key from app.kilo.ai \u2192 Profile \u2192 API Key.",
+        "Enter API Key",
+        "Later"
+      ).then((action) => {
+        if (action === "Enter API Key") {
+          vscode5.commands.executeCommand("kilo-lm.login");
+        }
+      });
+      context.globalState.update("kilo-lm.welcomeShown", true);
+    }
+  } catch (err) {
+    console.error("[Kilo LM] Activation error:", err);
+    throw err;
   }
 }
 function deactivate() {
