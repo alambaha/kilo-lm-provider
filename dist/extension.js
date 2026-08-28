@@ -753,6 +753,11 @@ Requests: ${summary.requestCount}`;
     };
     usageTracker.onUsageChanged("statusbar", updateStatusBar);
     context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
+        await chatProvider.visionProxy.configureVisionProxy();
+      })
+    );
+    context.subscriptions.push(
       vscode5.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
         try {
           const models = await vscode5.lm.selectChatModels();

@@ -36,6 +36,12 @@ export function activate(context: vscode.ExtensionContext) {
   usageTracker.onUsageChanged("statusbar", updateStatusBar)
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
+      await chatProvider.visionProxy.configureVisionProxy()
+    }),
+  )
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
       try {
         const models = await vscode.lm.selectChatModels()
