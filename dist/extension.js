@@ -494,6 +494,18 @@ var KiloChatProvider = class {
           info.thinking = true;
           info.supportsReasoningEffort = effortLevels;
           info.reasoningEffortFormat = "chat-completions";
+          info.configurationSchema = {
+            properties: {
+              reasoningEffort: {
+                type: "string",
+                title: "Thinking Effort",
+                enum: effortLevels,
+                enumItemLabels: effortLevels.map((l) => l.charAt(0).toUpperCase() + l.slice(1)),
+                default: effortLevels[0],
+                group: "navigation"
+              }
+            }
+          };
           console.log("[Kilo LM] Model", m.id, "supportsReasoningEffort:", effortLevels);
         }
         return info;
