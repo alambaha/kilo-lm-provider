@@ -37,6 +37,11 @@
         "category": "Kilo"
       },
       {
+        "command": "kilo-lm.testVisionProxy",
+        "title": "Kilo: Test Vision Models",
+        "category": "Kilo"
+      },
+      {
         "command": "kilo-lm.setReasoningEffort",
         "title": "Kilo: Set Reasoning Effort",
         "category": "Kilo"

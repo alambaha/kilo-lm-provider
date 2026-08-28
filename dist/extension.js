@@ -250,12 +250,15 @@ var VisionProxy = class _VisionProxy {
     const cacheKey = this.hashData(imageData, mimeType);
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTtl) {
+      console.log("[Kilo LM] Vision cache hit for", mimeType);
       return cached.result;
     }
+    console.log("[Kilo LM] Vision proxy: describing image", mimeType, "size:", imageData.length);
     const visionModel = await this.selectVisionModel();
     if (!visionModel) {
-      throw new Error("No vision-capable model available. Install Claude, GPT-4o, or configure a vision model.");
+      throw new Error("No vision-capable model available. Install Claude, GPT-4o, or run 'Kilo: Configure Vision Proxy'.");
     }
+    console.log("[Kilo LM] Using vision model:", visionModel.id);
     const prompt = vscode3.workspace.getConfiguration("kilo-lm").get("visionPrompt", DEFAULT_VISION_PROMPT);
     try {
       const messages = [
@@ -578,10 +581,12 @@ var KiloChatProvider = class {
             } else if ("mimeType" in part && !supportsNativeVision) {
               try {
                 const data = part.data || part;
+                console.log("[Kilo LM] Processing image part, mimeType:", part.mimeType, "data type:", typeof data, "is Uint8Array:", data instanceof Uint8Array);
                 const result2 = await this.visionProxy.describeImage(data, part.mimeType || "image/png");
                 textParts.push(`[Image description: ${result2.description}]`);
-              } catch {
-                textParts.push("[Image: could not be processed]");
+              } catch (err) {
+                console.error("[Kilo LM] Vision proxy error:", err);
+                textParts.push(`[Image: could not be processed - ${err instanceof Error ? err.message : String(err)}]`);
               }
             }
           }
@@ -748,8 +753,22 @@ Requests: ${summary.requestCount}`;
     };
     usageTracker.onUsageChanged("statusbar", updateStatusBar);
     context.subscriptions.push(
-      vscode5.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
-        await chatProvider.visionProxy.configureVisionProxy();
+      vscode5.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
+        try {
+          const models = await vscode5.lm.selectChatModels();
+          const visionModels = models.filter(
+            (m) => m.vendor === "copilot" || m.id?.toLowerCase().includes("claude") || m.id?.toLowerCase().includes("gpt-4") || m.id?.toLowerCase().includes("gemini") || m.id?.toLowerCase().includes("grok")
+          );
+          if (visionModels.length === 0) {
+            vscode5.window.showWarningMessage("No vision-capable models found. Install Claude, GPT-4o, or Gemini.");
+            return;
+          }
+          vscode5.window.showInformationMessage(
+            `Found ${visionModels.length} vision model(s): ${visionModels.map((m) => m.id).join(", ")}`
+          );
+        } catch (err) {
+          vscode5.window.showErrorMessage(`Vision test failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       })
     );
     context.subscriptions.push(

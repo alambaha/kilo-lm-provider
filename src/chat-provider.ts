@@ -221,10 +221,12 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
             } else if ("mimeType" in part && !supportsNativeVision) {
               try {
                 const data = (part as any).data || part
+                console.log("[Kilo LM] Processing image part, mimeType:", (part as any).mimeType, "data type:", typeof data, "is Uint8Array:", data instanceof Uint8Array)
                 const result = await this.visionProxy.describeImage(data, (part as any).mimeType || "image/png")
                 textParts.push(`[Image description: ${result.description}]`)
-              } catch {
-                textParts.push("[Image: could not be processed]")
+              } catch (err) {
+                console.error("[Kilo LM] Vision proxy error:", err)
+                textParts.push(`[Image: could not be processed - ${err instanceof Error ? err.message : String(err)}]`)
               }
             }
           }

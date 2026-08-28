@@ -36,8 +36,27 @@ export function activate(context: vscode.ExtensionContext) {
   usageTracker.onUsageChanged("statusbar", updateStatusBar)
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
-      await chatProvider.visionProxy.configureVisionProxy()
+    vscode.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
+      try {
+        const models = await vscode.lm.selectChatModels()
+        const visionModels = models.filter(
+          (m) =>
+            m.vendor === "copilot" ||
+            m.id?.toLowerCase().includes("claude") ||
+            m.id?.toLowerCase().includes("gpt-4") ||
+            m.id?.toLowerCase().includes("gemini") ||
+            m.id?.toLowerCase().includes("grok"),
+        )
+        if (visionModels.length === 0) {
+          vscode.window.showWarningMessage("No vision-capable models found. Install Claude, GPT-4o, or Gemini.")
+          return
+        }
+        vscode.window.showInformationMessage(
+          `Found ${visionModels.length} vision model(s): ${visionModels.map((m) => m.id).join(", ")}`,
+        )
+      } catch (err) {
+        vscode.window.showErrorMessage(`Vision test failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
     }),
   )
 

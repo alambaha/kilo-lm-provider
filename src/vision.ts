@@ -27,13 +27,16 @@ export class VisionProxy {
     const cacheKey = this.hashData(imageData, mimeType)
     const cached = this.cache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < this.cacheTtl) {
+      console.log("[Kilo LM] Vision cache hit for", mimeType)
       return cached.result
     }
 
+    console.log("[Kilo LM] Vision proxy: describing image", mimeType, "size:", imageData.length)
     const visionModel = await this.selectVisionModel()
     if (!visionModel) {
-      throw new Error("No vision-capable model available. Install Claude, GPT-4o, or configure a vision model.")
+      throw new Error("No vision-capable model available. Install Claude, GPT-4o, or run 'Kilo: Configure Vision Proxy'.")
     }
+    console.log("[Kilo LM] Using vision model:", visionModel.id)
 
     const prompt = vscode.workspace.getConfiguration("kilo-lm").get<string>("visionPrompt", DEFAULT_VISION_PROMPT)
 
