@@ -311,9 +311,13 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       }
 
       if (role === vscode.LanguageModelChatMessageRole.User) {
-        result.push({ role: "user", content })
+        if (content.trim()) {
+          result.push({ role: "user", content })
+        }
       } else if (role === vscode.LanguageModelChatMessageRole.Assistant) {
-        result.push({ role: "assistant", content })
+        if (content.trim()) {
+          result.push({ role: "assistant", content })
+        }
       }
     }
 

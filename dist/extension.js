@@ -650,9 +650,13 @@ var KiloChatProvider = class {
         content = textParts.join("\n");
       }
       if (role === vscode4.LanguageModelChatMessageRole.User) {
-        result.push({ role: "user", content });
+        if (content.trim()) {
+          result.push({ role: "user", content });
+        }
       } else if (role === vscode4.LanguageModelChatMessageRole.Assistant) {
-        result.push({ role: "assistant", content });
+        if (content.trim()) {
+          result.push({ role: "assistant", content });
+        }
       }
     }
     return result;
