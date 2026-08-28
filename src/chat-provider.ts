@@ -48,6 +48,8 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   private usageTracker = UsageTracker.getInstance()
   private requestLog: RequestLog[] = []
   private maxLogSize = 100
+  private _onDidChange = new vscode.EventEmitter<void>()
+  readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event
 
   constructor(
     private auth: KiloAuth,
@@ -58,6 +60,10 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
         // config changes picked up at request time
       }
     })
+  }
+
+  refreshModelPicker(): void {
+    this._onDidChange.fire()
   }
 
   getRequestLog(): RequestLog[] {

@@ -454,6 +454,11 @@ var KiloChatProvider = class {
   usageTracker = UsageTracker.getInstance();
   requestLog = [];
   maxLogSize = 100;
+  _onDidChange = new vscode4.EventEmitter();
+  onDidChangeLanguageModelChatInformation = this._onDidChange.event;
+  refreshModelPicker() {
+    this._onDidChange.fire();
+  }
   getRequestLog() {
     return [...this.requestLog];
   }
@@ -831,6 +836,7 @@ function activate(context) {
     const provider = vscode5.lm.registerLanguageModelChatProvider("kilo", chatProvider);
     context.subscriptions.push(provider);
     console.log("[Kilo LM] Language model provider registered");
+    provider.refreshModelPicker();
     const statusBar = vscode5.window.createStatusBarItem(vscode5.StatusBarAlignment.Right, 100);
     statusBar.text = "$(brain) Kilo";
     statusBar.tooltip = "Kilo Gateway \u2014 Click for usage info";

@@ -16,6 +16,25 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(provider)
   console.log("[Kilo LM] Language model provider registered")
 
+  // Fix: configurationSchema (Thinking Effort dropdown) is a non-public
+  // field that Copilot Chat does not persist in its chatLanguageModels.json
+  // cache. On startup, Copilot Chat initialises the model picker from cache
+  // and silently drops configurationSchema, so the per-model config menu
+  // never appears on first launch.
+  //
+  // Re-firing onDidChangeLanguageModelChatInformation here forces Copilot
+  // Chat to re-query our provider through the full (non-cached) path, which
+  // correctly picks up configurationSchema.
+  //
+  // This works because registerLanguageModelChatProvider() is synchronous,
+  // so the provider is fully registered before we fire the refresh and the
+  // host has already subscribed to receive the change. Copilot Chat can then
+  // re-query complete model information through the non-cached path. The
+  // extensionDependencies on github.copilot-chat in package.json
+  // additionally guarantees Copilot Chat is fully activated before this
+  // extension's activate() runs, eliminating any activation ordering race.
+  provider.refreshModelPicker()
+
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100)
   statusBar.text = "$(brain) Kilo"
   statusBar.tooltip = "Kilo Gateway — Click for usage info"
