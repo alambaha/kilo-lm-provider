@@ -282,6 +282,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       const role = (msg as any).role
       const rawContent = (msg as any).content
       let content = ""
+      const attachmentParts: string[] = []
 
       if (typeof rawContent === "string") {
         content = rawContent
@@ -293,17 +294,22 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
           } else if (typeof part === "string") {
             textParts.push(part)
           } else if (part && typeof part === "object") {
-            if ("value" in part) {
-              textParts.push((part as any).value)
-            } else if ("mimeType" in part && !supportsNativeVision) {
-              try {
-                const data = (part as any).data || part
-                const result = await this.visionProxy.describeImage(data, (part as any).mimeType || "image/png")
-                textParts.push(`[Image description: ${result.description}]`)
-              } catch (err) {
-                console.error("[Kilo LM] Vision proxy error:", err)
-                textParts.push(`[Image: could not be processed - ${err instanceof Error ? err.message : String(err)}]`)
+            if ("mimeType" in part) {
+              const mimeType = (part as any).mimeType || "image/png"
+              const data = (part as any).value ?? (part as any).data
+              if (data && !supportsNativeVision) {
+                try {
+                  const result = await this.visionProxy.describeImage(data, mimeType)
+                  textParts.push(`[Image: ${result.description}]`)
+                } catch (err) {
+                  console.error("[Kilo LM] Vision proxy error:", err)
+                  textParts.push(`[Image: could not be processed]`)
+                }
+              } else if (data) {
+                textParts.push(`[Image: ${mimeType}]`)
               }
+            } else if ("value" in part) {
+              textParts.push((part as any).value)
             }
           }
         }
@@ -311,8 +317,8 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       }
 
       if (role === vscode.LanguageModelChatMessageRole.User) {
-        if (content.trim()) {
-          result.push({ role: "user", content })
+        if (content.trim() || attachmentParts.length > 0) {
+          result.push({ role: "user", content: content.trim() || "[Attachment]" })
         }
       } else if (role === vscode.LanguageModelChatMessageRole.Assistant) {
         if (content.trim()) {
