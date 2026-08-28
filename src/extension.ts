@@ -36,37 +36,6 @@ export function activate(context: vscode.ExtensionContext) {
   usageTracker.onUsageChanged("statusbar", updateStatusBar)
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
-      await chatProvider.visionProxy.configureVisionProxy()
-    }),
-  )
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
-      try {
-        const models = await vscode.lm.selectChatModels()
-        const visionModels = models.filter(
-          (m) =>
-            m.vendor === "copilot" ||
-            m.id?.toLowerCase().includes("claude") ||
-            m.id?.toLowerCase().includes("gpt-4") ||
-            m.id?.toLowerCase().includes("gemini") ||
-            m.id?.toLowerCase().includes("grok"),
-        )
-        if (visionModels.length === 0) {
-          vscode.window.showWarningMessage("No vision-capable models found. Install Claude, GPT-4o, or Gemini.")
-          return
-        }
-        vscode.window.showInformationMessage(
-          `Found ${visionModels.length} vision model(s): ${visionModels.map((m) => m.id).join(", ")}`,
-        )
-      } catch (err) {
-        vscode.window.showErrorMessage(`Vision test failed: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }),
-  )
-
-  context.subscriptions.push(
     vscode.commands.registerCommand("kilo-lm.login", async () => {
       await auth.login()
     }),
@@ -107,6 +76,37 @@ export function activate(context: vscode.ExtensionContext) {
   )
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
+      await chatProvider.visionProxy.configureVisionProxy()
+    }),
+  )
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
+      try {
+        const models = await vscode.lm.selectChatModels()
+        const visionModels = models.filter(
+          (m) =>
+            m.vendor === "copilot" ||
+            m.id?.toLowerCase().includes("claude") ||
+            m.id?.toLowerCase().includes("gpt-4") ||
+            m.id?.toLowerCase().includes("gemini") ||
+            m.id?.toLowerCase().includes("grok"),
+        )
+        if (visionModels.length === 0) {
+          vscode.window.showWarningMessage("No vision-capable models found. Install Claude, GPT-4o, or Gemini.")
+          return
+        }
+        vscode.window.showInformationMessage(
+          `Found ${visionModels.length} vision model(s): ${visionModels.map((m) => m.id).join(", ")}`,
+        )
+      } catch (err) {
+        vscode.window.showErrorMessage(`Vision test failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }),
+  )
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("kilo-lm.showUsage", async () => {
       const summary = usageTracker.getSessionSummary()
       const action = await vscode.window.showInformationMessage(
@@ -125,6 +125,55 @@ export function activate(context: vscode.ExtensionContext) {
         await modelProvider.refresh()
         vscode.window.showInformationMessage("Kilo: Models refreshed")
       }
+    }),
+  )
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-lm.showDiagnostics", async () => {
+      const models = await modelProvider.getModels()
+      const log = chatProvider.getRequestLog()
+      const summary = usageTracker.getSessionSummary()
+
+      const lines: string[] = [
+        "# Kilo Gateway Diagnostics",
+        "",
+        "## Models",
+        `${models.length} models available`,
+        "",
+        "## Session Usage",
+        `- Requests: ${summary.requestCount}`,
+        `- Session tokens: ${summary.sessionTokens.toLocaleString()}`,
+        `- Session cost: $${summary.sessionCost.toFixed(4)}`,
+        `- Total cost: $${summary.totalCost.toFixed(4)}`,
+        "",
+        "## Request Log",
+        `${log.length} requests logged`,
+        "",
+      ]
+
+      if (log.length > 0) {
+        lines.push("| Time | Model | Status | Duration | Error |")
+        lines.push("|------|-------|--------|----------|-------|")
+        for (const entry of log.slice(-20)) {
+          const time = new Date(entry.timestamp).toLocaleTimeString()
+          lines.push(
+            `| ${time} | ${entry.model} | ${entry.status} | ${entry.duration}ms | ${entry.error ?? "-"} |`,
+          )
+        }
+      }
+
+      const doc = await vscode.workspace.openTextDocument({
+        content: lines.join("\n"),
+        language: "markdown",
+      })
+      await vscode.window.showTextDocument(doc, { preview: true })
+    }),
+  )
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-lm.clearLogs", async () => {
+      chatProvider.clearRequestLog()
+      vscode.window.showInformationMessage("Kilo: Request logs cleared")
     }),
   )
 

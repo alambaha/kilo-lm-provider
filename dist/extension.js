@@ -435,7 +435,7 @@ var KiloChatProvider = class {
     this.modelProvider = modelProvider;
     this.loadConfig();
     vscode4.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("kilo-lm.reasoning")) {
+      if (e.affectsConfiguration("kilo-lm.reasoning") || e.affectsConfiguration("kilo-lm.temperature") || e.affectsConfiguration("kilo-lm.maxTokens")) {
         this.loadConfig();
       }
     });
@@ -443,9 +443,17 @@ var KiloChatProvider = class {
   reasoningEffort = "medium";
   visionProxy = VisionProxy.getInstance();
   usageTracker = UsageTracker.getInstance();
+  requestLog = [];
+  maxLogSize = 100;
   loadConfig() {
     const config = vscode4.workspace.getConfiguration("kilo-lm");
     this.reasoningEffort = config.get("reasoningEffort", "medium");
+  }
+  getRequestLog() {
+    return [...this.requestLog];
+  }
+  clearRequestLog() {
+    this.requestLog = [];
   }
   async provideLanguageModelChatInformation(options, token) {
     try {
@@ -468,6 +476,7 @@ var KiloChatProvider = class {
     }
   }
   async provideLanguageModelChatResponse(model, messages, options, progress, token) {
+    const startTime = Date.now();
     const isCustom = this.modelProvider.isCustomModel(model.id);
     let token_ = null;
     let baseUrl = GATEWAY_BASE3;
@@ -489,10 +498,15 @@ var KiloChatProvider = class {
     const tools = options.tools ? this.convertTools(options.tools) : void 0;
     const fullModel = (await this.modelProvider.getModels()).find((m) => m.id === model.id);
     const reasoning = this.buildReasoning(fullModel);
+    const config = vscode4.workspace.getConfiguration("kilo-lm");
+    const temperature = config.get("temperature", 0.2);
+    const maxTokensOverride = config.get("maxTokens", 0);
     const request = {
       model: model.id,
       messages: gatewayMessages,
       stream: true,
+      temperature: temperature > 0 ? temperature : void 0,
+      max_tokens: maxTokensOverride > 0 ? maxTokensOverride : void 0,
       tools
     };
     if (reasoning) {
@@ -503,7 +517,7 @@ var KiloChatProvider = class {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       if (token.isCancellationRequested) return;
       try {
-        const response = await fetch(`${baseUrl}/chat/completions`, {
+        const response = await this.fetchWithTimeout(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -516,6 +530,7 @@ var KiloChatProvider = class {
             throw new Error("No response body");
           }
           await this.streamResponse(response.body, progress, token, fullModel);
+          this.logRequest(model.id, "success", 0, 0, Date.now() - startTime);
           return;
         }
         const errorText = await response.text();
@@ -524,14 +539,16 @@ var KiloChatProvider = class {
         if (isContextOverflow && attempt < maxRetries - 1) {
           const delay2 = this.getRetryDelay(attempt, 429);
           progress.report(new vscode4.LanguageModelTextPart(`
-[Context overflow, reducing and retrying...]
+[Context overflow, reducing output and retrying...]
 `));
           await this.sleep(delay2);
           request.max_tokens = Math.floor((request.max_tokens ?? 32768) * 0.75);
           await this.modelProvider.refresh();
+          this.logRequest(model.id, "retry", 0, 0, Date.now() - startTime, "context_overflow");
           continue;
         }
         if (!isRetryable || attempt === maxRetries - 1) {
+          this.logRequest(model.id, "error", 0, 0, Date.now() - startTime, errorText);
           throw new Error(`Kilo Gateway error (${response.status}): ${errorText}`);
         }
         lastError = new Error(`Kilo Gateway error (${response.status}): ${errorText}`);
@@ -540,6 +557,7 @@ var KiloChatProvider = class {
 [Model unavailable, retrying in ${delay / 1e3}s...]
 `));
         await this.sleep(delay);
+        this.logRequest(model.id, "retry", 0, 0, Date.now() - startTime, `status_${response.status}`);
         if (response.status === 502 || response.status === 503) {
           await this.modelProvider.refresh();
         }
@@ -551,13 +569,40 @@ var KiloChatProvider = class {
         if (attempt < maxRetries - 1) {
           const delay = this.getRetryDelay(attempt, 503);
           await this.sleep(delay);
+          this.logRequest(model.id, "retry", 0, 0, Date.now() - startTime, lastError.message);
         }
       }
     }
+    this.logRequest(model.id, "error", 0, 0, Date.now() - startTime, lastError?.message);
     throw lastError ?? new Error("Request failed after retries");
   }
   async provideTokenCount(text, token) {
     return Math.ceil(text.length / 4);
+  }
+  async fetchWithTimeout(url, options) {
+    const config = vscode4.workspace.getConfiguration("kilo-lm");
+    const timeoutMs = config.get("requestTimeout", 6e4);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  logRequest(model, status, promptTokens, completionTokens, duration, error) {
+    this.requestLog.push({
+      timestamp: Date.now(),
+      model,
+      status,
+      promptTokens,
+      completionTokens,
+      duration,
+      error
+    });
+    if (this.requestLog.length > this.maxLogSize) {
+      this.requestLog.shift();
+    }
   }
   async convertMessages(messages, modelId, progress, cancelToken) {
     const result = [];
@@ -582,7 +627,6 @@ var KiloChatProvider = class {
             } else if ("mimeType" in part && !supportsNativeVision) {
               try {
                 const data = part.data || part;
-                console.log("[Kilo LM] Processing image part, mimeType:", part.mimeType, "data type:", typeof data, "is Uint8Array:", data instanceof Uint8Array);
                 const result2 = await this.visionProxy.describeImage(data, part.mimeType || "image/png");
                 textParts.push(`[Image description: ${result2.description}]`);
               } catch (err) {
@@ -625,6 +669,8 @@ var KiloChatProvider = class {
     let buffer = "";
     let thinkingContent = "";
     let thinkingPart = null;
+    let promptTokens = 0;
+    let completionTokens = 0;
     try {
       while (true) {
         if (token.isCancellationRequested) {
@@ -643,6 +689,9 @@ var KiloChatProvider = class {
           if (data === "[DONE]") {
             if (thinkingPart) {
               progress.report(thinkingPart);
+            }
+            if (model && promptTokens > 0) {
+              this.usageTracker.record(model.id, promptTokens, completionTokens, model.pricing);
             }
             return;
           }
@@ -678,13 +727,9 @@ var KiloChatProvider = class {
                 }
               }
             }
-            if (parsed.usage && model) {
-              this.usageTracker.record(
-                model.id,
-                parsed.usage.prompt_tokens ?? 0,
-                parsed.usage.completion_tokens ?? 0,
-                model.pricing
-              );
+            if (parsed.usage) {
+              promptTokens = parsed.usage.prompt_tokens ?? promptTokens;
+              completionTokens = parsed.usage.completion_tokens ?? completionTokens;
             }
           } catch {
           }
@@ -754,30 +799,6 @@ Requests: ${summary.requestCount}`;
     };
     usageTracker.onUsageChanged("statusbar", updateStatusBar);
     context.subscriptions.push(
-      vscode5.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
-        await chatProvider.visionProxy.configureVisionProxy();
-      })
-    );
-    context.subscriptions.push(
-      vscode5.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
-        try {
-          const models = await vscode5.lm.selectChatModels();
-          const visionModels = models.filter(
-            (m) => m.vendor === "copilot" || m.id?.toLowerCase().includes("claude") || m.id?.toLowerCase().includes("gpt-4") || m.id?.toLowerCase().includes("gemini") || m.id?.toLowerCase().includes("grok")
-          );
-          if (visionModels.length === 0) {
-            vscode5.window.showWarningMessage("No vision-capable models found. Install Claude, GPT-4o, or Gemini.");
-            return;
-          }
-          vscode5.window.showInformationMessage(
-            `Found ${visionModels.length} vision model(s): ${visionModels.map((m) => m.id).join(", ")}`
-          );
-        } catch (err) {
-          vscode5.window.showErrorMessage(`Vision test failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      })
-    );
-    context.subscriptions.push(
       vscode5.commands.registerCommand("kilo-lm.login", async () => {
         await auth.login();
       })
@@ -812,6 +833,30 @@ Requests: ${summary.requestCount}`;
       })
     );
     context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.configureVisionProxy", async () => {
+        await chatProvider.visionProxy.configureVisionProxy();
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.testVisionProxy", async () => {
+        try {
+          const models = await vscode5.lm.selectChatModels();
+          const visionModels = models.filter(
+            (m) => m.vendor === "copilot" || m.id?.toLowerCase().includes("claude") || m.id?.toLowerCase().includes("gpt-4") || m.id?.toLowerCase().includes("gemini") || m.id?.toLowerCase().includes("grok")
+          );
+          if (visionModels.length === 0) {
+            vscode5.window.showWarningMessage("No vision-capable models found. Install Claude, GPT-4o, or Gemini.");
+            return;
+          }
+          vscode5.window.showInformationMessage(
+            `Found ${visionModels.length} vision model(s): ${visionModels.map((m) => m.id).join(", ")}`
+          );
+        } catch (err) {
+          vscode5.window.showErrorMessage(`Vision test failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      })
+    );
+    context.subscriptions.push(
       vscode5.commands.registerCommand("kilo-lm.showUsage", async () => {
         const summary = usageTracker.getSessionSummary();
         const action = await vscode5.window.showInformationMessage(
@@ -830,6 +875,50 @@ Total cost: $${summary.totalCost.toFixed(4)}`,
           await modelProvider.refresh();
           vscode5.window.showInformationMessage("Kilo: Models refreshed");
         }
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.showDiagnostics", async () => {
+        const models = await modelProvider.getModels();
+        const log = chatProvider.getRequestLog();
+        const summary = usageTracker.getSessionSummary();
+        const lines = [
+          "# Kilo Gateway Diagnostics",
+          "",
+          "## Models",
+          `${models.length} models available`,
+          "",
+          "## Session Usage",
+          `- Requests: ${summary.requestCount}`,
+          `- Session tokens: ${summary.sessionTokens.toLocaleString()}`,
+          `- Session cost: $${summary.sessionCost.toFixed(4)}`,
+          `- Total cost: $${summary.totalCost.toFixed(4)}`,
+          "",
+          "## Request Log",
+          `${log.length} requests logged`,
+          ""
+        ];
+        if (log.length > 0) {
+          lines.push("| Time | Model | Status | Duration | Error |");
+          lines.push("|------|-------|--------|----------|-------|");
+          for (const entry of log.slice(-20)) {
+            const time = new Date(entry.timestamp).toLocaleTimeString();
+            lines.push(
+              `| ${time} | ${entry.model} | ${entry.status} | ${entry.duration}ms | ${entry.error ?? "-"} |`
+            );
+          }
+        }
+        const doc = await vscode5.workspace.openTextDocument({
+          content: lines.join("\n"),
+          language: "markdown"
+        });
+        await vscode5.window.showTextDocument(doc, { preview: true });
+      })
+    );
+    context.subscriptions.push(
+      vscode5.commands.registerCommand("kilo-lm.clearLogs", async () => {
+        chatProvider.clearRequestLog();
+        vscode5.window.showInformationMessage("Kilo: Request logs cleared");
       })
     );
     const hasShownWelcome = context.globalState.get("kilo-lm.welcomeShown");

@@ -36,10 +36,22 @@ interface GatewayTool {
   }
 }
 
+export interface RequestLog {
+  timestamp: number
+  model: string
+  status: "success" | "error" | "retry"
+  promptTokens: number
+  completionTokens: number
+  error?: string
+  duration: number
+}
+
 export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   private reasoningEffort: ReasoningEffort = "medium"
   readonly visionProxy = VisionProxy.getInstance()
   private usageTracker = UsageTracker.getInstance()
+  private requestLog: RequestLog[] = []
+  private maxLogSize = 100
 
   constructor(
     private auth: KiloAuth,
@@ -47,7 +59,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   ) {
     this.loadConfig()
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("kilo-lm.reasoning")) {
+      if (e.affectsConfiguration("kilo-lm.reasoning") || e.affectsConfiguration("kilo-lm.temperature") || e.affectsConfiguration("kilo-lm.maxTokens")) {
         this.loadConfig()
       }
     })
@@ -56,6 +68,14 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
   private loadConfig(): void {
     const config = vscode.workspace.getConfiguration("kilo-lm")
     this.reasoningEffort = config.get<ReasoningEffort>("reasoningEffort", "medium")
+  }
+
+  getRequestLog(): RequestLog[] {
+    return [...this.requestLog]
+  }
+
+  clearRequestLog(): void {
+    this.requestLog = []
   }
 
   async provideLanguageModelChatInformation(options: { silent: boolean }, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
@@ -86,6 +106,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
   ): Promise<void> {
+    const startTime = Date.now()
     const isCustom = this.modelProvider.isCustomModel(model.id)
     let token_: string | null = null
     let baseUrl = GATEWAY_BASE
@@ -110,11 +131,16 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     const tools = options.tools ? this.convertTools(options.tools) : undefined
     const fullModel = (await this.modelProvider.getModels()).find((m) => m.id === model.id)
     const reasoning = this.buildReasoning(fullModel)
+    const config = vscode.workspace.getConfiguration("kilo-lm")
+    const temperature = config.get<number>("temperature", 0.2)
+    const maxTokensOverride = config.get<number>("maxTokens", 0)
 
     const request: GatewayRequest = {
       model: model.id,
       messages: gatewayMessages,
       stream: true,
+      temperature: temperature > 0 ? temperature : undefined,
+      max_tokens: maxTokensOverride > 0 ? maxTokensOverride : undefined,
       tools,
     }
 
@@ -129,7 +155,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
       if (token.isCancellationRequested) return
 
       try {
-        const response = await fetch(`${baseUrl}/chat/completions`, {
+        const response = await this.fetchWithTimeout(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -143,6 +169,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
             throw new Error("No response body")
           }
           await this.streamResponse(response.body, progress, token, fullModel)
+          this.logRequest(model.id, "success", 0, 0, Date.now() - startTime)
           return
         }
 
@@ -152,14 +179,16 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
 
         if (isContextOverflow && attempt < maxRetries - 1) {
           const delay = this.getRetryDelay(attempt, 429)
-          progress.report(new vscode.LanguageModelTextPart(`\n[Context overflow, reducing and retrying...]\n`))
+          progress.report(new vscode.LanguageModelTextPart(`\n[Context overflow, reducing output and retrying...]\n`))
           await this.sleep(delay)
           request.max_tokens = Math.floor((request.max_tokens ?? 32768) * 0.75)
           await this.modelProvider.refresh()
+          this.logRequest(model.id, "retry", 0, 0, Date.now() - startTime, "context_overflow")
           continue
         }
 
         if (!isRetryable || attempt === maxRetries - 1) {
+          this.logRequest(model.id, "error", 0, 0, Date.now() - startTime, errorText)
           throw new Error(`Kilo Gateway error (${response.status}): ${errorText}`)
         }
 
@@ -167,6 +196,7 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
         const delay = this.getRetryDelay(attempt, response.status)
         progress.report(new vscode.LanguageModelTextPart(`\n[Model unavailable, retrying in ${delay / 1000}s...]\n`))
         await this.sleep(delay)
+        this.logRequest(model.id, "retry", 0, 0, Date.now() - startTime, `status_${response.status}`)
 
         if (response.status === 502 || response.status === 503) {
           await this.modelProvider.refresh()
@@ -179,15 +209,46 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
         if (attempt < maxRetries - 1) {
           const delay = this.getRetryDelay(attempt, 503)
           await this.sleep(delay)
+          this.logRequest(model.id, "retry", 0, 0, Date.now() - startTime, lastError.message)
         }
       }
     }
 
+    this.logRequest(model.id, "error", 0, 0, Date.now() - startTime, lastError?.message)
     throw lastError ?? new Error("Request failed after retries")
   }
 
   async provideTokenCount(text: string, token: vscode.CancellationToken): Promise<number> {
     return Math.ceil(text.length / 4)
+  }
+
+  private async fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+    const config = vscode.workspace.getConfiguration("kilo-lm")
+    const timeoutMs = config.get<number>("requestTimeout", 60000)
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      return await fetch(url, { ...options, signal: controller.signal })
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  private logRequest(model: string, status: "success" | "error" | "retry", promptTokens: number, completionTokens: number, duration: number, error?: string): void {
+    this.requestLog.push({
+      timestamp: Date.now(),
+      model,
+      status,
+      promptTokens,
+      completionTokens,
+      duration,
+      error,
+    })
+    if (this.requestLog.length > this.maxLogSize) {
+      this.requestLog.shift()
+    }
   }
 
   private async convertMessages(
@@ -221,7 +282,6 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
             } else if ("mimeType" in part && !supportsNativeVision) {
               try {
                 const data = (part as any).data || part
-                console.log("[Kilo LM] Processing image part, mimeType:", (part as any).mimeType, "data type:", typeof data, "is Uint8Array:", data instanceof Uint8Array)
                 const result = await this.visionProxy.describeImage(data, (part as any).mimeType || "image/png")
                 textParts.push(`[Image description: ${result.description}]`)
               } catch (err) {
@@ -282,6 +342,8 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
     let buffer = ""
     let thinkingContent = ""
     let thinkingPart: any = null
+    let promptTokens = 0
+    let completionTokens = 0
 
     try {
       while (true) {
@@ -304,6 +366,9 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
           if (data === "[DONE]") {
             if (thinkingPart) {
               progress.report(thinkingPart)
+            }
+            if (model && promptTokens > 0) {
+              this.usageTracker.record(model.id, promptTokens, completionTokens, model.pricing)
             }
             return
           }
@@ -344,13 +409,9 @@ export class KiloChatProvider implements vscode.LanguageModelChatProvider {
               }
             }
 
-            if (parsed.usage && model) {
-              this.usageTracker.record(
-                model.id,
-                parsed.usage.prompt_tokens ?? 0,
-                parsed.usage.completion_tokens ?? 0,
-                model.pricing,
-              )
+            if (parsed.usage) {
+              promptTokens = parsed.usage.prompt_tokens ?? promptTokens
+              completionTokens = parsed.usage.completion_tokens ?? completionTokens
             }
           } catch {
           }

@@ -42,13 +42,18 @@
         "category": "Kilo"
       },
       {
-        "command": "kilo-lm.setReasoningEffort",
-        "title": "Kilo: Set Reasoning Effort",
+        "command": "kilo-lm.showUsage",
+        "title": "Kilo: Show Usage",
         "category": "Kilo"
       },
       {
-        "command": "kilo-lm.showUsage",
-        "title": "Kilo: Show Usage",
+        "command": "kilo-lm.showDiagnostics",
+        "title": "Kilo: Show Diagnostics",
+        "category": "Kilo"
+      },
+      {
+        "command": "kilo-lm.clearLogs",
+        "title": "Kilo: Clear Logs",
         "category": "Kilo"
       },
       {
@@ -66,11 +71,6 @@
     "configuration": {
       "title": "Kilo LM Provider",
       "properties": {
-        "kilo-lm.autoLogin": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically prompt for login when selecting a Kilo model"
-        },
         "kilo-lm.reasoningEffort": {
           "type": "string",
           "default": "medium",
@@ -83,10 +83,40 @@
           },
           "description": "Reasoning/thinking effort level for models that support it (Claude Opus, GPT-5, Gemini 3, etc.)"
         },
+        "kilo-lm.temperature": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature (0 = deterministic, 2 = creative). 0 = use model default."
+        },
+        "kilo-lm.maxTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Max output tokens override (0 = use model default)"
+        },
+        "kilo-lm.requestTimeout": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 5000,
+          "description": "Request timeout in milliseconds"
+        },
+        "kilo-lm.visionModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model ID for vision proxy (describes images for text-only models). Leave empty for auto-detection."
+        },
+        "kilo-lm.visionPrompt": {
+          "type": "string",
+          "editPresentation": "multilineText",
+          "default": "Text extraction is mandatory. Visual description required unless tightly cropped text-only.\n\nTASK 1 — TEXT EXTRACTION (always):\n1. Transcribe every detectable character verbatim — all text, symbols, and glyphs of any kind, in any location. Never correct, alter, summarize, paraphrase, or truncate.\n2. Preserve formatting: monospaced → code block, proportional → plain text, tabular → Markdown table.\n3. Annotate spatial position with [Region: name] headers for multi-region images.\n4. Uncertainty markers: [?] = uncertain char, [unclear] = uncertain span, [unreadable] = illegible.\n\nTASK 2 — VISUAL DESCRIPTION (unless tightly cropped text-only):\n1. Describe all non-text visual content: window chrome, UI state, colors, diagrams.\n2. Diagrams: describe structure — what labels represent, how elements connect.\n\nOUTPUT FORMAT:\n--- Extracted Text ---\n[transcription]\n--- Visual Context ---\n[description]",
+          "description": "Prompt sent to the vision proxy model when describing image attachments."
+        },
         "kilo-lm.customModels": {
           "type": "array",
           "default": [],
-          "description": "Add custom OpenAI-compatible models. Each model needs: id, name, baseUrl, contextLength, maxOutputTokens, supportsTools, supportsImages, supportsReasoning, apiKey",
+          "description": "Add custom OpenAI-compatible models.",
           "items": {
             "type": "object",
             "required": ["id", "name", "baseUrl", "contextLength"],
@@ -102,22 +132,6 @@
               "supportsReasoning": { "type": "boolean", "default": false }
             }
           }
-        },
-        "kilo-lm.visionModel": {
-          "type": "string",
-          "default": "",
-          "description": "Model ID for vision proxy (describes images for text-only models). Leave empty for auto-detection."
-        },
-        "kilo-lm.visionPrompt": {
-          "type": "string",
-          "editPresentation": "multilineText",
-          "default": "Describe the visual contents of this image in detail, including any text, objects, people, UI elements, or code that would be relevant for understanding it. Focus on factual visual elements.",
-          "description": "Prompt sent to the vision proxy model when describing image attachments."
-        },
-        "kilo-lm.showPricing": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show model pricing in the model picker"
         }
       }
     }
@@ -139,6 +153,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Kilo-Org/kilo-lm-provider"
+    "url": "https://github.com/alambaha/kilo-lm-provider"
   }
 }
