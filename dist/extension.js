@@ -37,7 +37,7 @@ module.exports = __toCommonJS(extension_exports);
 var vscode5 = __toESM(require("vscode"));
 
 // src/auth.ts
-var vscode2 = __toESM(require("vscode"));
+var vscode = __toESM(require("vscode"));
 var API_KEY_STORAGE = "kilo-lm.apiKey";
 var GATEWAY_BASE = "https://api.kilo.ai/api/gateway";
 var KiloAuth = class {
@@ -50,7 +50,7 @@ var KiloAuth = class {
     this.apiKey = this.context.secrets.get(API_KEY_STORAGE) ?? null;
   }
   async login() {
-    const key = await vscode2.window.showInputBox({
+    const key = await vscode.window.showInputBox({
       prompt: "Enter your Kilo Gateway API Key",
       placeHolder: "JWT token from app.kilo.ai \u2192 Profile \u2192 API Key",
       password: true,
@@ -64,16 +64,16 @@ var KiloAuth = class {
     if (!key) return;
     this.apiKey = key;
     await this.context.secrets.store(API_KEY_STORAGE, key);
-    vscode2.window.showInformationMessage("Kilo: API key saved successfully");
+    vscode.window.showInformationMessage("Kilo: API key saved successfully");
   }
   async logout() {
     this.apiKey = null;
     await this.context.secrets.delete(API_KEY_STORAGE);
-    vscode2.window.showInformationMessage("Kilo: API key removed");
+    vscode.window.showInformationMessage("Kilo: API key removed");
   }
   async getAccessToken() {
     if (!this.apiKey) {
-      const action = await vscode2.window.showWarningMessage(
+      const action = await vscode.window.showWarningMessage(
         "Kilo API key not configured. Please enter your API key.",
         "Enter API Key",
         "Cancel"
@@ -100,6 +100,7 @@ var KiloAuth = class {
 };
 
 // src/models.ts
+var vscode2 = __toESM(require("vscode"));
 var GATEWAY_BASE2 = "https://api.kilo.ai/api/gateway";
 var REASONING_MODELS = [
   "opus-4",
@@ -129,7 +130,7 @@ var KiloModelProvider = class {
   constructor(auth) {
     this.auth = auth;
     this.loadCustomModels();
-    vscode.workspace.onDidChangeConfiguration((e) => {
+    vscode2.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kilo-lm.customModels")) {
         this.loadCustomModels();
       }
@@ -140,7 +141,7 @@ var KiloModelProvider = class {
   lastFetch = 0;
   cacheTtl = 36e5;
   loadCustomModels() {
-    const config = vscode.workspace.getConfiguration("kilo-lm");
+    const config = vscode2.workspace.getConfiguration("kilo-lm");
     this.customModels = config.get("customModels", []);
   }
   getCustomModels() {

@@ -1,3 +1,4 @@
+import * as vscode from "vscode"
 import { KiloAuth } from "./auth"
 
 const GATEWAY_BASE = "https://api.kilo.ai/api/gateway"
